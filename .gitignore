@@ -1,0 +1,63 @@
+.DS_Store
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.coverage
+htmlcov/
+*.log
+.env
+.env.local
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Redis
+dump.rdb
+*.rdb
+
+# Docker
+.docker/
+docker-compose.override.yml
+
+# Secrets
+secrets/
+*.key
+*.pem
+*.crt
+private/
+.secrets
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# OS
+Thumbs.db
+.DS_Store
+.env.*.local
+
+# IDE
+.idea
+.vscode
+*.sublime-project
+*.sublime-workspace
+
+# Test artifacts
+test_*.py
+conftest.py
+
+# Production logs (keep commits clean)
+logs/*.log
+*.log
