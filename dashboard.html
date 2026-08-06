@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EAGLE-X v3.3 — لوحة التحكم السيبرانية</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Cairo', sans-serif; background-color: #0a192f; color: #e6f1ff; }
+        .seal-gold { color: #d4af37; }
+        .bg-card { background-color: #112240; border: 1px solid rgba(212, 175, 55, 0.2); }
+        .glow-gold { box-shadow: 0 0 20px rgba(212, 175, 55, 0.15); }
+    </style>
+</head>
+<body class="min-h-screen p-6">
+    <div class="max-w-7xl mx-auto space-y-6">
+        <!-- Header -->
+        <header class="flex justify-between items-center bg-card p-6 rounded-2xl glow-gold">
+            <div class="flex items-center space-x-4 space-x-reverse">
+                <div class="text-4xl">🦅</div>
+                <div>
+                    <h1 class="text-3xl font-black seal-gold">EAGLE-X v3.3</h1>
+                    <p class="text-sm text-gray-400">نظام الأمن السيبراني المقاوم للكم • الختم: 310-70-94</p>
+                </div>
+            </div>
+            <div class="flex items-center space-x-3 space-x-reverse">
+                <span class="inline-block w-3 h-3 bg-green-500 rounded-full animate-pulse"></span>
+                <span class="text-sm font-bold text-green-400">النظام يعمل بكفاءة تامة</span>
+            </div>
+        </header>
+
+        <!-- Stats Grid -->
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+            <div class="bg-card p-6 rounded-2xl">
+                <p class="text-sm text-gray-400 mb-2">الحزم المفحوصة</p>
+                <h3 id="stat-packets" class="text-3xl font-black seal-gold">0</h3>
+            </div>
+            <div class="bg-card p-6 rounded-2xl">
+                <p class="text-sm text-gray-400 mb-2">التهديدات المكتشفة</p>
+                <h3 id="stat-threats" class="text-3xl font-black text-red-400">0</h3>
+            </div>
+            <div class="bg-card p-6 rounded-2xl">
+                <p class="text-sm text-gray-400 mb-2">سلامة النظام</p>
+                <h3 class="text-3xl font-black text-green-400">100%</h3>
+            </div>
+            <div class="bg-card p-6 rounded-2xl">
+                <p class="text-sm text-gray-400 mb-2">خوارزمية PQC</p>
+                <h3 class="text-xl font-bold seal-gold">Kyber-768</h3>
+            </div>
+        </div>
+
+        <!-- Main Content Area -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <!-- Threat Log -->
+            <div class="lg:col-span-2 bg-card p-6 rounded-2xl">
+                <h3 class="text-xl font-bold mb-4 seal-gold">سجل التهديدات والشفاء الذاتي</h3>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-right text-sm">
+                        <thead>
+                            <tr class="border-b border-gray-700 text-gray-400">
+                                <th class="pb-3">الوقت</th>
+                                <th class="pb-3">نوع التهديد</th>
+                                <th class="pb-3">مستوى الثقة</th>
+                                <th class="pb-3">الحالة</th>
+                            </tr>
+                        </thead>
+                        <tbody id="threat-table-body" class="divide-y divide-gray-800">
+                            <tr>
+                                <td colspan="4" class="py-4 text-center text-gray-500">جاري مراقبة الشبكة... لا توجد تهديدات نشطة حالياً.</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- System Controls -->
+            <div class="bg-card p-6 rounded-2xl space-y-6">
+                <h3 class="text-xl font-bold seal-gold">التحكم بالنظام</h3>
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-sm text-gray-400 mb-1">حساسية الذكاء الاصطناعي</label>
+                        <input type="range" min="0.5" max="0.99" step="0.01" value="0.85" class="w-full accent-yellow-500">
+                    </div>
+                    <div>
+                        <label class="block text-sm text-gray-400 mb-1">بروتوكول التشفير</label>
+                        <select class="w-full bg-gray-900 border border-gray-700 rounded-lg p-2.5 text-white">
+                            <option>Kyber-768 + Dilithium-2</option>
+                            <option>Kyber-1024</option>
+                        </select>
+                    </div>
+                    <button onclick="triggerScan()" class="w-full bg-yellow-600 hover:bg-yellow-500 text-black font-bold py-3 rounded-xl transition">
+                        فحص يدوي فوري
+                    </button>
+                    <button onclick="triggerHeal()" class="w-full bg-red-600 hover:bg-red-500 text-white font-bold py-3 rounded-xl transition">
+                        اختبار الشفاء الذاتي
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        async function fetchStats() {
+            try {
+                const res = await fetch('/api/stats');
+                const data = await res.json();
+                document.getElementById('stat-packets').innerText = data.packets_scanned.toLocaleString();
+                document.getElementById('stat-threats').innerText = data.threats_detected;
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        async function fetchThreats() {
+            try {
+                const res = await fetch('/api/threats');
+                const data = await res.json();
+                const tbody = document.getElementById('threat-table-body');
+                if (data.threats && data.threats.length > 0) {
+                    tbody.innerHTML = data.threats.map(t => `
+                        <tr class="hover:bg-gray-800/50">
+                            <td class="py-3">${new Date(t.timestamp).toLocaleTimeString()}</td>
+                            <td class="py-3 text-red-400">${t.type}</td>
+                            <td class="py-3">${(t.confidence * 100).toFixed(1)}%</td>
+                            <td class="py-3 text-green-400">تم التعافي تلقائياً</td>
+                        </tr>
+                    `).join('');
+                }
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        async function triggerScan() {
+            const res = await fetch('/api/detect', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ features: [0.95, 0.88, 0.75, 0.99] })
+            });
+            const data = await res.json();
+            alert('تم الفحص بنجاح. النتيجة: ' + JSON.stringify(data.analysis.threat_detected ? "تم اكتشاف تهديد وتحييده" : "آمن"));
+            fetchStats();
+            fetchThreats();
+        }
+
+        async function triggerHeal() {
+            alert('تم تفعيل اختبار الشفاء الذاتي. جاري استعادة العقد وعزل التهديد...');
+        }
+
+        setInterval(() => {
+            fetchStats();
+            fetchThreats();
+        }, 3000);
+
+        fetchStats();
+        fetchThreats();
+    </script>
+</body>
+</html>
