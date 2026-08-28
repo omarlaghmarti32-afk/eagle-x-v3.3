@@ -23,5 +23,5 @@ pcap = ["scapy>=2.5.0"]
 dev = ["pytest>=7.0.0", "httpx>=0.24.0"]
 
 [tool.vercel]
-# Explicit FastAPI entry for Vercel Python runtime
-entrypoint = "api.index:app"
+# Prefer root main:app — most reliable for Vercel Python + FastAPI
+entrypoint = "main:app"

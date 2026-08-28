@@ -2,34 +2,34 @@
 
 ## نقطة الدخول
 
-Vercel يتوقع كائن FastAPI باسم `app` في أحد الملفات المدعومة:
-
-- `api/index.py` ← **المُستخدم هنا** (`from api_server import app`)
-- أو `main.py` / `app.py`
-
-في `pyproject.toml`:
+المعتمد في `pyproject.toml`:
 
 ```toml
 [tool.vercel]
-entrypoint = "api.index:app"
+entrypoint = "main:app"
 ```
+
+ملفات بديلة مدعومة أيضاً:
+
+- `main.py` → `app`
+- `app.py` → `app`
+- `api/index.py` → `app` (مع إصلاح `sys.path`)
+
+## إصلاح شائع
+
+إذا ظهر `ModuleNotFoundError: api_server` أو `core`، السبب أن مسار المشروع لم يُضف إلى `sys.path`. الملفات `main.py` و`api/index.py` تفعل ذلك تلقائياً الآن.
 
 ## القيود (Serverless)
 
 | الميزة | على Vercel |
 |--------|------------|
 | REST API + لوحة | نعم |
-| `/api/health` و `/api/detect` | نعم |
-| حلقات المراقبة الحية | **معطّلة** (لا عملية طويلة الأمد) |
-| SQLite تحت `/tmp` | مؤقت — يُمسح بين الحالات الباردة |
-| liboqs / scapy | غير مناسب عادةً لحجم الدالة |
-| Docker / Caddy | استخدم VPS أو Railway بدل Vercel |
-
-للمراقبة المستمرة وPQC الكامل استخدم `docker compose` على خادم.
+| حلقات المراقبة الحية | معطّلة |
+| SQLite تحت `/tmp` | مؤقت |
+| حجم الحزمة (sklearn/numpy) | قد يفشل على الخطة المجانية إن تجاوز الحد |
+| PQC / Docker / Caddy | استخدم VPS |
 
 ## المتغيرات
-
-في Vercel → Project → Settings → Environment Variables:
 
 ```
 EAGLE_API_TOKEN=strong-secret
@@ -42,26 +42,15 @@ EAGLE_LOG_DIR=/tmp/eagle-x-logs
 ## النشر
 
 ```bash
-npm i -g vercel
 vercel login
 vercel
-# أو ربط GitHub بالمستودع من لوحة Vercel
 ```
 
-تأكد أن Root Directory هو جذر المستودع، وRuntime = Python.
-
-## التحقق
+التحقق:
 
 ```bash
 curl https://<project>.vercel.app/api/health
-curl https://<project>.vercel.app/api/status
+curl https://<project>.vercel.app/api/ready
 ```
 
-مسارات محمية:
-
-```bash
-curl -X POST https://<project>.vercel.app/api/detect \
-  -H "Authorization: Bearer $EAGLE_API_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"features":[90,90,2e6,2e6,400,300,80,0.9]}'
-```
+إذا فشل البناء بسبب حجم التبعيات، استخدم `requirements-vercel.txt` كمحتوى `requirements.txt` مؤقتاً أو انشر عبر Docker على خادم.

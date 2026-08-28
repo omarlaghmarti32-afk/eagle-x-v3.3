@@ -1,14 +1,20 @@
 """Vercel Python entrypoint — exports FastAPI `app`.
 
-Vercel looks for a FastAPI instance named `app` in supported modules.
-Background loops are disabled in serverless (no persistent process).
+Ensures project root is on sys.path so `api_server` and `core` import cleanly
+when the runtime starts from the /api function directory.
 """
 
 from __future__ import annotations
 
 import os
+import sys
+from pathlib import Path
 
-# Serverless-safe defaults (must be set before importing api_server)
+_ROOT = Path(__file__).resolve().parent.parent
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
+
+# Serverless-safe defaults (before importing api_server)
 os.environ.setdefault("EAGLE_LIVE_MONITOR", "0")
 os.environ.setdefault("EAGLE_HEALTH_INTERNAL", "0")
 os.environ.setdefault("EAGLE_DATA_DIR", "/tmp/eagle-x-data")
