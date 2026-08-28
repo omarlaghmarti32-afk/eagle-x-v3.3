@@ -1,0 +1,27 @@
+[project]
+name = "eagle-x"
+version = "3.3.0"
+description = "EAGLE-X v3.3 operational cybersecurity monitor"
+requires-python = ">=3.11"
+dependencies = [
+  "numpy>=1.24.0",
+  "scikit-learn>=1.2.0",
+  "cryptography>=41.0.0",
+  "requests>=2.31.0",
+  "scipy>=1.10.0",
+  "fastapi>=0.95.0",
+  "uvicorn>=0.20.0",
+  "pydantic>=2.0.0",
+  "jinja2>=3.0.0",
+  "psutil>=5.9.0",
+  "python-multipart>=0.0.6",
+]
+
+[project.optional-dependencies]
+pqc = ["liboqs-python>=0.12.0"]
+pcap = ["scapy>=2.5.0"]
+dev = ["pytest>=7.0.0", "httpx>=0.24.0"]
+
+[tool.vercel]
+# Explicit FastAPI entry for Vercel Python runtime
+entrypoint = "api.index:app"
