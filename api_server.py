@@ -8,6 +8,7 @@ import logging
 import os
 import sys
 import time
+from contextlib import asynccontextmanager
 from typing import Any, Dict, List, Optional
 
 from fastapi import Depends, FastAPI, Header, HTTPException
@@ -16,7 +17,7 @@ from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 
 from core.ai_detector import AIThreatDetector
-from core.config import API_TOKEN, LOG_DIR, SEAL, VERSION
+from core.config import API_TOKEN, FEATURE_NAMES, LOG_DIR, SEAL, VERSION
 from core.network_monitor import NetworkMonitor
 from core.pqc_manager import PQCManager
 from core.self_healing import SelfHealingEngine
@@ -30,20 +31,6 @@ logging.basicConfig(
     handlers=[logging.FileHandler(LOG_FILE), logging.StreamHandler(sys.stdout)],
 )
 logger = logging.getLogger("EAGLE-X")
-
-app = FastAPI(
-    title="EAGLE-X v3.3 REST API",
-    description="Operational cybersecurity monitor with real host metrics & crypto",
-    version=VERSION,
-)
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 pqc = PQCManager()
 ai_detector = AIThreatDetector()
@@ -62,12 +49,96 @@ system_config: Dict[str, Any] = {
     "pqc_algorithm": pqc.algorithm,
     "ai_sensitivity": ai_detector.sensitivity,
     "self_healing_enabled": True,
-    "live_monitor": True,
+    "live_monitor": os.environ.get("EAGLE_LIVE_MONITOR", "1") not in ("0", "false", "False"),
 }
 
 
+async def live_monitor_loop():
+    global _packets
+    logger.info("Live monitor loop started")
+    try:
+        async for features in monitor.start_monitoring(duration=0):
+            if not _running:
+                break
+            _packets += 1
+            analysis = ai_detector.analyze(features)
+            snap = {
+                k: features[i]
+                for i, k in enumerate(FEATURE_NAMES)
+                if i < len(features)
+            }
+
+            if _packets % 15 == 0:
+                db.record_metrics(
+                    _packets,
+                    db.count_threats(),
+                    snap.get("cpu_percent", 0.0),
+                    snap.get("mem_percent", 0.0),
+                )
+
+            if analysis.get("threat_detected"):
+                sealed = pqc.seal(analysis)
+                tid = db.add_threat(
+                    threat_type=analysis.get("threat_type", "UNKNOWN"),
+                    confidence=float(analysis.get("confidence", 0)),
+                    severity=analysis.get("severity", "medium"),
+                    source="live_monitor",
+                    features=analysis.get("features"),
+                    action_taken="pending_heal"
+                    if system_config.get("self_healing_enabled")
+                    else "logged",
+                    status="detected",
+                    sealed=sealed.get("ciphertext"),
+                )
+                logger.warning(
+                    f"Threat #{tid} {analysis.get('threat_type')} conf={analysis.get('confidence'):.2f}"
+                )
+                if system_config.get("self_healing_enabled"):
+                    result = await healer.heal(
+                        analysis.get("threat_type", "UNKNOWN"),
+                        context={"features": analysis.get("features")},
+                    )
+                    db.add_audit("auto_heal", {"threat_id": tid, "result": result})
+    except asyncio.CancelledError:
+        logger.info("Live monitor cancelled")
+        raise
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global _monitor_task, _running
+    _running = True
+    db.add_audit("startup", {"version": VERSION, "seal": SEAL})
+    if system_config.get("live_monitor"):
+        _monitor_task = asyncio.create_task(live_monitor_loop())
+    yield
+    _running = False
+    if _monitor_task:
+        _monitor_task.cancel()
+        try:
+            await _monitor_task
+        except asyncio.CancelledError:
+            pass
+    db.add_audit("shutdown", {})
+
+
+app = FastAPI(
+    title="EAGLE-X v3.3 REST API",
+    description="Operational cybersecurity monitor with real host metrics & crypto",
+    version=VERSION,
+    lifespan=lifespan,
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
 def require_token(authorization: Optional[str] = Header(default=None)):
-    """Simple bearer token auth. Disabled only if EAGLE_API_TOKEN is empty."""
     if not API_TOKEN:
         return True
     if not authorization or not authorization.startswith("Bearer "):
@@ -79,74 +150,15 @@ def require_token(authorization: Optional[str] = Header(default=None)):
 
 
 class PacketData(BaseModel):
-    features: List[float] = Field(..., description="8 host features or legacy 4-length vector")
+    features: List[float] = Field(
+        ..., description="8 host features or shorter vector (padded)"
+    )
     indicator: Optional[str] = None
 
 
 class HealRequest(BaseModel):
     threat_type: str = "MANUAL_TEST"
     indicator: Optional[str] = None
-
-
-async def live_monitor_loop():
-    global _packets
-    logger.info("Live monitor loop started")
-    async for features in monitor.start_monitoring(duration=0):
-        if not _running:
-            break
-        _packets += 1
-        analysis = ai_detector.analyze(features)
-        snap = {k: features[i] for i, k in enumerate(
-            ["cpu_percent", "mem_percent", "net_bytes_sent_rate", "net_bytes_recv_rate",
-             "process_count", "connection_count", "disk_usage_percent", "entropy_proxy"]
-        ) if i < len(features)}
-
-        if _packets % 15 == 0:
-            db.record_metrics(
-                _packets,
-                db.count_threats(),
-                snap.get("cpu_percent", 0.0),
-                snap.get("mem_percent", 0.0),
-            )
-
-        if analysis.get("threat_detected"):
-            sealed = pqc.seal(analysis)
-            tid = db.add_threat(
-                threat_type=analysis.get("threat_type", "UNKNOWN"),
-                confidence=float(analysis.get("confidence", 0)),
-                severity=analysis.get("severity", "medium"),
-                source="live_monitor",
-                features=analysis.get("features"),
-                action_taken="pending_heal" if system_config.get("self_healing_enabled") else "logged",
-                status="detected",
-                sealed=sealed.get("ciphertext"),
-            )
-            logger.warning(
-                f"Threat #{tid} {analysis.get('threat_type')} conf={analysis.get('confidence'):.2f}"
-            )
-            if system_config.get("self_healing_enabled"):
-                result = await healer.heal(
-                    analysis.get("threat_type", "UNKNOWN"),
-                    context={"features": analysis.get("features")},
-                )
-                db.add_audit("auto_heal", {"threat_id": tid, "result": result})
-
-
-@app.on_event("startup")
-async def on_startup():
-    global _monitor_task
-    db.add_audit("startup", {"version": VERSION, "seal": SEAL})
-    if system_config.get("live_monitor"):
-        _monitor_task = asyncio.create_task(live_monitor_loop())
-
-
-@app.on_event("shutdown")
-async def on_shutdown():
-    global _running
-    _running = False
-    if _monitor_task:
-        _monitor_task.cancel()
-    db.add_audit("shutdown", {})
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -218,7 +230,10 @@ async def detect_threat(packet: PacketData, _: bool = Depends(require_token)):
         if system_config.get("self_healing_enabled"):
             await healer.heal(
                 analysis.get("threat_type", "API_INJECTED"),
-                context={"indicator": packet.indicator, "features": analysis.get("features")},
+                context={
+                    "indicator": packet.indicator,
+                    "features": analysis.get("features"),
+                },
             )
 
     return {"analysis": analysis, "seal": sealed}
@@ -233,7 +248,6 @@ async def manual_heal(req: HealRequest, _: bool = Depends(require_token)):
 @app.get("/api/threats")
 async def get_threats():
     threats = db.list_threats(50)
-    # Normalize for dashboard
     normalized = []
     for t in threats:
         normalized.append(

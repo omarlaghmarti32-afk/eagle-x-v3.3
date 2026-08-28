@@ -22,6 +22,12 @@ htmlcov/
 *.swo
 *~
 
+# Runtime data & keys
+data/
+*.db
+*.sqlite
+*.sqlite3
+
 # Redis
 dump.rdb
 *.rdb
@@ -37,6 +43,7 @@ secrets/
 *.crt
 private/
 .secrets
+*.ed25519
 
 # Temporary files
 tmp/
@@ -45,19 +52,12 @@ temp/
 
 # OS
 Thumbs.db
-.DS_Store
-.env.*.local
 
 # IDE
-.idea
-.vscode
+.idea/
+.vscode/
 *.sublime-project
 *.sublime-workspace
 
-# Test artifacts
-test_*.py
-conftest.py
-
-# Production logs (keep commits clean)
-logs/*.log
-*.log
+# Logs
+logs/
