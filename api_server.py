@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field
 from core.ai_detector import AIThreatDetector
 from core.config import API_TOKEN, FEATURE_NAMES, LOG_DIR, SEAL, VERSION
 from core.network_monitor import NetworkMonitor
+from core.packet_capture import PacketCapture
 from core.pqc_manager import PQCManager
 from core.self_healing import SelfHealingEngine
 from core.threat_db import ThreatDB
@@ -38,6 +39,7 @@ ai_detector.train_mock()
 db = ThreatDB()
 healer = SelfHealingEngine(crypto=pqc.crypto, db=db)
 monitor = NetworkMonitor()
+pcap = PacketCapture(iface=os.environ.get("EAGLE_PCAP_IFACE") or None)
 
 start_time = time.time()
 _monitor_task: Optional[asyncio.Task] = None
@@ -50,6 +52,7 @@ system_config: Dict[str, Any] = {
     "ai_sensitivity": ai_detector.sensitivity,
     "self_healing_enabled": True,
     "live_monitor": os.environ.get("EAGLE_LIVE_MONITOR", "1") not in ("0", "false", "False"),
+    "packet_capture": os.environ.get("EAGLE_PCAP", "0") in ("1", "true", "True"),
 }
 
 
@@ -61,6 +64,10 @@ async def live_monitor_loop():
             if not _running:
                 break
             _packets += 1
+
+            if system_config.get("packet_capture") and _packets % 5 == 0:
+                await asyncio.to_thread(pcap.capture_burst, 10, 1)
+
             analysis = ai_detector.analyze(features)
             snap = {
                 k: features[i]
@@ -108,7 +115,7 @@ async def live_monitor_loop():
 async def lifespan(app: FastAPI):
     global _monitor_task, _running
     _running = True
-    db.add_audit("startup", {"version": VERSION, "seal": SEAL})
+    db.add_audit("startup", {"version": VERSION, "seal": SEAL, "pqc": pqc.get_status()})
     if system_config.get("live_monitor"):
         _monitor_task = asyncio.create_task(live_monitor_loop())
     yield
@@ -124,7 +131,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="EAGLE-X v3.3 REST API",
-    description="Operational cybersecurity monitor with real host metrics & crypto",
+    description="Operational cybersecurity monitor with real host metrics, hybrid PQC, optional pcap",
     version=VERSION,
     lifespan=lifespan,
 )
@@ -150,9 +157,7 @@ def require_token(authorization: Optional[str] = Header(default=None)):
 
 
 class PacketData(BaseModel):
-    features: List[float] = Field(
-        ..., description="8 host features or shorter vector (padded)"
-    )
+    features: List[float] = Field(..., description="Host feature vector")
     indicator: Optional[str] = None
 
 
@@ -180,6 +185,7 @@ async def health():
         "seal": SEAL,
         "uptime_seconds": int(time.time() - start_time),
         "packets_scanned": _packets,
+        "pqc_mode": pqc.mode,
     }
 
 
@@ -193,6 +199,7 @@ async def get_status():
         "packets_scanned": _packets,
         "threats_total": db.count_threats(),
         "pqc": pqc.get_status(),
+        "packet_capture": pcap.status(),
         "system_integrity": 100.0,
         "live_monitor": system_config.get("live_monitor"),
     }
@@ -208,6 +215,7 @@ async def get_stats():
         "false_positive_rate": 0.05,
         "average_recovery_time_seconds": 2.1,
         "host": snap,
+        "pcap_summary": pcap.summary_features() if pcap.samples else {},
     }
 
 
@@ -243,6 +251,23 @@ async def detect_threat(packet: PacketData, _: bool = Depends(require_token)):
 async def manual_heal(req: HealRequest, _: bool = Depends(require_token)):
     result = await healer.heal(req.threat_type, context={"indicator": req.indicator})
     return result
+
+
+@app.get("/api/pqc/kem-demo")
+async def pqc_kem_demo(_: bool = Depends(require_token)):
+    demo = pqc.kem_demo()
+    if not demo:
+        raise HTTPException(
+            status_code=503,
+            detail="liboqs not available. Install liboqs-python and build tools.",
+        )
+    return demo
+
+
+@app.post("/api/pcap/burst")
+async def pcap_burst(_: bool = Depends(require_token)):
+    samples = await asyncio.to_thread(pcap.capture_burst, 25, 2)
+    return {"count": len(samples), "samples": samples[:25], "status": pcap.status()}
 
 
 @app.get("/api/threats")

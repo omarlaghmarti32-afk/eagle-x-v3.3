@@ -1,0 +1,4 @@
+# Optional: real PQC (needs cmake/gcc; may compile liboqs on first import)
+liboqs-python>=0.12.0
+# Optional: packet capture (often needs root / NET_RAW)
+scapy>=2.5.0

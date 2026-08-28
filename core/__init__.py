@@ -7,6 +7,8 @@ from .self_healing import SelfHealingEngine
 from .system_monitor import SystemMonitor
 from .threat_db import ThreatDB
 from .crypto_engine import CryptoEngine
+from .pqc_real import RealPQC
+from .packet_capture import PacketCapture
 
 __all__ = [
     "PQCManager",
@@ -16,4 +18,6 @@ __all__ = [
     "SystemMonitor",
     "ThreatDB",
     "CryptoEngine",
+    "RealPQC",
+    "PacketCapture",
 ]
