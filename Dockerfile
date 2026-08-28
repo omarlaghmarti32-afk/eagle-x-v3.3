@@ -51,14 +51,15 @@ RUN echo "EAGLE-X v3.3 | Seal: 310-70-94 | Built: $(date -u +'%Y-%m-%dT%H:%M:%SZ
 
 USER eaglex
 
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD python -c "import requests; res = requests.get('http://localhost:8080/api/status'); exit(0 if res.status_code == 200 else 1)" || exit 1
-
-EXPOSE 8080
-
 ENV EAGLE_MODE=production \
     EAGLE_VERSION=3.3 \
     EAGLE_SEAL=310-70-94 \
-    LOG_LEVEL=INFO
+    LOG_LEVEL=INFO \
+    EAGLE_LOG_DIR=/var/log/eagle-x
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/api/health')" || exit 1
+
+EXPOSE 8080
 
 CMD ["uvicorn", "api_server:app", "--host", "0.0.0.0", "--port", "8080"]
