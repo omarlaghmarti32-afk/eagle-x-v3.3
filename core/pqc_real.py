@@ -27,7 +27,6 @@ try:
     _OQS = oqs
     enabled_kems = set(oqs.get_enabled_kem_mechanisms())
     enabled_sigs = set(oqs.get_enabled_sig_mechanisms())
-    # Prefer standardized names; fall back to older Kyber/Dilithium labels if needed
     if "ML-KEM-768" in enabled_kems:
         _KEM_ALG = "ML-KEM-768"
     elif "Kyber768" in enabled_kems:
@@ -105,5 +104,5 @@ class RealPQC:
         }
 
     @staticmethod
-b64(data: bytes) -> str:
+    def b64(data: bytes) -> str:
         return base64.b64encode(data).decode("ascii")
