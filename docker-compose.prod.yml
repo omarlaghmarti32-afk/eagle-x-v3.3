@@ -1,0 +1,21 @@
+# Production overlay: Let's Encrypt + stricter defaults
+# Usage:
+#   export EAGLE_DOMAIN=eagle.example.com
+#   export CADDY_EMAIL=ops@example.com
+#   export EAGLE_API_TOKEN='strong-random-token'
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+
+services:
+  eagle-x:
+    environment:
+      EAGLE_MODE: production
+      LOG_LEVEL: WARNING
+
+  caddy:
+    environment:
+      EAGLE_DOMAIN: ${EAGLE_DOMAIN:?Set EAGLE_DOMAIN to your public hostname}
+      CADDY_EMAIL: ${CADDY_EMAIL:?Set CADDY_EMAIL for Let's Encrypt registration}
+    volumes:
+      - ./Caddyfile.production:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config

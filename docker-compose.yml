@@ -1,6 +1,11 @@
 services:
   eagle-x:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        ENABLE_PQC: "${ENABLE_PQC:-1}"
+    image: eagle-x:3.3-pqc
     container_name: eagle-x-v33
     expose:
       - "8080"
@@ -23,8 +28,8 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 25s
-    # Uncomment for packet capture (needs NET_RAW / host network):
+      start_period: 40s
+    # Packet capture (optional):
     # network_mode: host
     # cap_add: [NET_RAW, NET_ADMIN]
 
@@ -38,11 +43,14 @@ services:
       EAGLE_DOMAIN: ${EAGLE_DOMAIN:-localhost}
       CADDY_EMAIL: ${CADDY_EMAIL:-admin@localhost}
     volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Default: local TLS. For Let's Encrypt production, mount Caddyfile.production:
+      #   - ./Caddyfile.production:/etc/caddy/Caddyfile:ro
+      - ${CADDYFILE:-./Caddyfile}:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
     depends_on:
-      - eagle-x
+      eagle-x:
+        condition: service_healthy
     restart: unless-stopped
 
 volumes:

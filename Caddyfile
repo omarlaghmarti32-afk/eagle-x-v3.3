@@ -1,13 +1,13 @@
 {
-	email {$CADDY_EMAIL:admin@localhost}
-	auto_https disable_redirects
+	email {$CADDY_EMAIL}
 }
 
+# Development / local (internal CA)
 {$EAGLE_DOMAIN:localhost} {
+	@local host localhost 127.0.0.1
 	tls internal
 
 	encode gzip
-
 	header {
 		Strict-Transport-Security "max-age=31536000; includeSubDomains"
 		X-Content-Type-Options nosniff
@@ -15,6 +15,5 @@
 		Referrer-Policy no-referrer
 		-Server
 	}
-
 	reverse_proxy eagle-x:8080
 }

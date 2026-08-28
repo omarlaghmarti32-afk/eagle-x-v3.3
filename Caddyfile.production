@@ -1,0 +1,27 @@
+{
+	email {$CADDY_EMAIL}
+	# Uncomment if behind another proxy that terminates TLS already:
+	# auto_https disable_redirects
+}
+
+{$EAGLE_DOMAIN} {
+	# Let's Encrypt automatic HTTPS (requires public DNS A/AAAA -> this host, ports 80+443 open)
+	encode gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy no-referrer
+		Permissions-Policy "geolocation=(), microphone=(), camera=()"
+		-Server
+	}
+
+	# Optional basic rate limit at edge can be added via caddy plugins;
+	# application auth remains Bearer token on sensitive routes.
+
+	reverse_proxy eagle-x:8080 {
+		header_up X-Forwarded-Proto {scheme}
+		header_up X-Real-IP {remote_host}
+	}
+}

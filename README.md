@@ -2,87 +2,102 @@
 
 **Seal**: 310-70-94 · **Version**: 3.3
 
-نظام تشغيل حقيقي: مراقبة مضيف، كشف شذوذ، تشفير AES/Ed25519، PQC اختياري (ML-KEM/ML-DSA)، التقاط حزم اختياري، وTLS عبر Caddy.
+مراقبة مضيف حقيقية · AES-256-GCM + Ed25519 · **ML-KEM/ML-DSA** (liboqs مُضمَّن في صورة Docker) · TLS عبر Caddy (محلي أو **Let’s Encrypt**).
 
 ---
 
-## القدرات
-
-| الطبقة | الحالة |
-|--------|--------|
-| AES-256-GCM + Ed25519 | **مفعّل دائماً** |
-| ML-KEM / ML-DSA (liboqs) | **اختياري** — يُفعَّل تلقائياً إن وُجد |
-| مراقبة المضيف (psutil) | **مفعّل** |
-| التقاط حزم (scapy) | **اختياري** (`EAGLE_PCAP=1` + صلاحيات) |
-| SQLite audit / blocklist | **مفعّل** |
-| TLS reverse proxy (Caddy) | **مفعّل** في docker-compose |
-
----
-
-## تشغيل سريع (مع HTTPS)
+## تشغيل محلي (HTTPS داخلي)
 
 ```bash
-git clone https://github.com/omarlaghmarti32-afk/eagle-x-v3.3.git
-cd eagle-x-v3.3
-export EAGLE_API_TOKEN="غيّر-هذا"
+cp .env.example .env
+# عدّل EAGLE_API_TOKEN
 docker compose up -d --build
-```
-
-- HTTP API داخلي: المنفذ 8080 داخل الشبكة
-- الواجهة العامة: **https://localhost** (شهادة داخلية من Caddy)
-
-```bash
 curl -k https://localhost/api/health
 ```
 
-### بدون Docker
+## إنتاج مع Let’s Encrypt
+
+المتطلبات:
+1. نطاق يشير إلى عنوان الخادم (سجل A/AAAA)
+2. المنافذ **80** و **443** مفتوحة للعالم
+3. بريد صالح لتسجيل ACME
 
 ```bash
-pip install -r requirements.txt
-# اختياري:
-pip install -r requirements-optional.txt   # liboqs-python + scapy
+cp .env.example .env
+# مثال:
+# EAGLE_DOMAIN=eagle.example.com
+# CADDY_EMAIL=ops@example.com
+# EAGLE_API_TOKEN=<رمز-قوي-طويل>
 
-export EAGLE_API_TOKEN=change-me
-uvicorn api_server:app --host 0.0.0.0 --port 8080
+chmod +x scripts/deploy-prod.sh
+./scripts/deploy-prod.sh
 ```
+
+أو يدوياً:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+curl https://$EAGLE_DOMAIN/api/health
+```
+
+Caddy يحصل على شهادة Let’s Encrypt تلقائياً ويجدّدها.
 
 ---
 
-## PQC الحقيقي
+## صورة Docker مع liboqs جاهز
 
-عند تثبيت `liboqs-python` وتوفر مكتبة liboqs الأصلية:
+البناء يُجمّع **liboqs 0.12.0** داخل الصورة عند `ENABLE_PQC=1` (الافتراضي):
 
 ```bash
-curl -k -H "Authorization: Bearer change-me" https://localhost/api/pqc/kem-demo
+./scripts/build-pqc-image.sh
+# أو
+docker build --build-arg ENABLE_PQC=1 -t eagle-x:3.3-pqc .
 ```
 
-يعيد مفتاحاً عاماً وciphertext وhash للسر المشترك من **ML-KEM-768** (أو Kyber768).
+للتحقق من PQC داخل الحاوية:
 
-بدون liboqs يبقى النظام على AES-256-GCM + Ed25519 دون انهيار.
+```bash
+docker run --rm eagle-x:3.3-pqc python -c "from core.pqc_manager import PQCManager; print(PQCManager().get_status())"
+```
+
+مسار API:
+
+```bash
+curl -H "Authorization: Bearer $EAGLE_API_TOKEN" https://$EAGLE_DOMAIN/api/pqc/kem-demo
+```
+
+بناء أسرع بدون PQC:
+
+```bash
+docker build --build-arg ENABLE_PQC=0 -t eagle-x:3.3 .
+```
+
+CI يدفع الصورة إلى GHCR كـ `ghcr.io/<user>/eagle-x-v3.3:3.3-pqc` عند الدفع لـ `main`.
 
 ---
 
-## التقاط الحزم
+## الطبقات الأمنية
 
-```bash
-export EAGLE_PCAP=1
-# قد تحتاج:
-# docker compose مع network_mode: host و cap_add: [NET_RAW, NET_ADMIN]
-curl -H "Authorization: Bearer change-me" -X POST http://localhost:8080/api/pcap/burst
-```
+| الطبقة | الحالة |
+|--------|--------|
+| AES-256-GCM + Ed25519 | دائماً |
+| ML-KEM-768 / ML-DSA-65 | في صورة PQC |
+| Caddy TLS | محلي (`tls internal`) أو Let’s Encrypt |
+| Bearer token | على `/api/detect` و`/heal` و`/pqc/*` و`/pcap/*` |
+| SQLite audit + blocklist | مفعّل |
 
 ---
 
-## API مختصرة
+## ملفات مهمة
 
-| Path | Auth |
-|------|------|
-| `GET /api/health` | لا |
-| `GET /api/status` | لا (يعرض حالة PQC/pcap) |
-| `POST /api/detect` | Bearer |
-| `POST /api/heal` | Bearer |
-| `GET /api/pqc/kem-demo` | Bearer |
-| `POST /api/pcap/burst` | Bearer |
+| ملف | دور |
+|-----|-----|
+| `Caddyfile` | TLS محلي |
+| `Caddyfile.production` | Let’s Encrypt |
+| `docker-compose.prod.yml` | طبقة الإنتاج |
+| `scripts/deploy-prod.sh` | نشر إنتاج |
+| `scripts/build-pqc-image.sh` | بناء صورة PQC |
+| `.env.example` | نموذج المتغيرات |
 
 ---
 
@@ -92,14 +107,5 @@ curl -H "Authorization: Bearer change-me" -X POST http://localhost:8080/api/pcap
 export EAGLE_DATA_DIR=/tmp/eagle-data EAGLE_LOG_DIR=/tmp/eagle-logs EAGLE_API_TOKEN=test-token EAGLE_LIVE_MONITOR=0
 pytest -q
 ```
-
----
-
-## الإنتاج
-
-1. غيّر `EAGLE_API_TOKEN`
-2. عيّن `EAGLE_DOMAIN` و`CADDY_EMAIL` لشهادات Let’s Encrypt بدل `tls internal`
-3. لا تفتح 8080 للعامة — فقط 443 عبر Caddy
-4. احمِ volume `eagle_data` (مفاتيح + SQLite)
 
 **Noran Ultimate Systems · Seal 310-70-94**
