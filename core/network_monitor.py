@@ -1,28 +1,39 @@
+"""Continuous host monitoring stream."""
+
+from __future__ import annotations
+
 import asyncio
-import time
-import random
-import socket
 import logging
-from typing import AsyncGenerator, List
+import time
+from typing import AsyncGenerator, Dict, List
+
+from .config import MONITOR_INTERVAL
+from .system_monitor import SystemMonitor
 
 logger = logging.getLogger("EAGLE-X")
 
-class NetworkMonitor:
-    """Real-time Network Monitoring System (simulated packet stream)"""
-    def __init__(self, port: int = 8080):
-        self.port = port
-        try:
-            self.hostname = socket.gethostname()
-        except Exception:
-            self.hostname = "localhost"
-        logger.info(f"Network Monitor listening on {self.hostname}:{self.port}")
 
-    async def start_monitoring(self, duration: int = 60) -> AsyncGenerator[List[float], None]:
-        logger.info(f"Starting network scan for {duration} seconds...")
-        start_time = time.time()
-        while time.time() - start_time < duration:
-            # Simulate network packet features:
-            # [packet_size, frequency, protocol_id, entropy]
-            packet_data = [random.random() for _ in range(4)]
-            yield packet_data
-            await asyncio.sleep(2)
+class NetworkMonitor:
+    def __init__(self):
+        self.system = SystemMonitor()
+        self.packets_scanned = 0
+        logger.info("Network/System monitor initialized (psutil-backed)")
+
+    async def start_monitoring(
+        self, duration: int = 0, interval: float = MONITOR_INTERVAL
+    ) -> AsyncGenerator[List[float], None]:
+        """Yield feature vectors. duration=0 means run forever."""
+        logger.info(
+            f"Starting continuous monitoring (duration={duration or 'infinite'}s, interval={interval}s)"
+        )
+        start = time.time()
+        while True:
+            if duration and (time.time() - start) >= duration:
+                break
+            features = self.system.feature_vector()
+            self.packets_scanned += 1
+            yield features
+            await asyncio.sleep(interval)
+
+    def one_shot(self) -> Dict[str, float]:
+        return self.system.snapshot()
