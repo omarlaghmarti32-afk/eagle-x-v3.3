@@ -16,6 +16,7 @@ jobs:
     permissions:
       contents: read
       packages: write
+      actions: write
     steps:
       - uses: actions/checkout@v4
 
@@ -34,8 +35,14 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=3.3
+            type=raw,value=latest,enable=${{ github.ref_type == 'tag' }}
+            type=ref,event=tag
+            type=sha,prefix=sha-
 
       - name: Build and push
+        id: build
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -46,3 +53,66 @@ jobs:
             ENABLE_PQC=0
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Verify image health
+        env:
+          EAGLE_LIVE_MONITOR: "0"
+          EAGLE_HEALTH_INTERNAL: "0"
+          EAGLE_API_TOKEN: ci-verify-token
+        run: |
+          set -euo pipefail
+          IMAGE=$(echo "${{ steps.meta.outputs.tags }}" | head -n1)
+          echo "Verifying image: $IMAGE"
+
+          docker pull "$IMAGE"
+
+          docker run -d --name eagle-verify \
+            -p 8080:8080 \
+            -e EAGLE_LIVE_MONITOR=0 \
+            -e EAGLE_HEALTH_INTERNAL=0 \
+            -e EAGLE_API_TOKEN=ci-verify-token \
+            -e EAGLE_DATA_DIR=/tmp/eagle-data \
+            -e EAGLE_LOG_DIR=/tmp/eagle-logs \
+            "$IMAGE"
+
+          echo "Waiting for /api/ready..."
+          ok=0
+          for i in $(seq 1 40); do
+            if curl -sf http://127.0.0.1:8080/api/ready >/tmp/ready.json; then
+              ok=1
+              break
+            fi
+            sleep 2
+          done
+
+          if [ "$ok" != "1" ]; then
+            echo "ERROR: service did not become ready"
+            docker logs eagle-verify || true
+            docker rm -f eagle-verify || true
+            exit 1
+          fi
+
+          echo "=== /api/ready ==="
+          cat /tmp/ready.json
+          echo
+
+          echo "=== /api/health ==="
+          curl -sf http://127.0.0.1:8080/api/health | tee /tmp/health.json
+          echo
+
+          echo "=== /api/status ==="
+          curl -sf http://127.0.0.1:8080/api/status | tee /tmp/status.json
+          echo
+
+          python3 - <<'PY'
+          import json
+          ready = json.load(open("/tmp/ready.json"))
+          health = json.load(open("/tmp/health.json"))
+          assert ready.get("ready") is True or ready.get("status") == "ready", ready
+          assert health.get("status") == "ok", health
+          print("VERIFY_OK", {"ready": ready, "health_status": health.get("status"), "version": health.get("version")})
+          PY
+
+          docker logs eagle-verify --tail 50
+          docker rm -f eagle-verify
+          echo "Post-build verification passed."
