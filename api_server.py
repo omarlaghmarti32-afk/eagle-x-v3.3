@@ -11,13 +11,14 @@ import time
 from contextlib import asynccontextmanager
 from typing import Any, Dict, List, Optional
 
-from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel, Field
 
 from core.ai_detector import AIThreatDetector
 from core.config import API_TOKEN, FEATURE_NAMES, LOG_DIR, SEAL, VERSION
+from core.health import run_health_checks
 from core.network_monitor import NetworkMonitor
 from core.packet_capture import PacketCapture
 from core.pqc_manager import PQCManager
@@ -43,8 +44,10 @@ pcap = PacketCapture(iface=os.environ.get("EAGLE_PCAP_IFACE") or None)
 
 start_time = time.time()
 _monitor_task: Optional[asyncio.Task] = None
+_health_task: Optional[asyncio.Task] = None
 _packets = 0
 _running = True
+_last_health: Dict[str, Any] = {}
 
 system_config: Dict[str, Any] = {
     "mode": os.environ.get("EAGLE_MODE", "production"),
@@ -53,7 +56,47 @@ system_config: Dict[str, Any] = {
     "self_healing_enabled": True,
     "live_monitor": os.environ.get("EAGLE_LIVE_MONITOR", "1") not in ("0", "false", "False"),
     "packet_capture": os.environ.get("EAGLE_PCAP", "0") in ("1", "true", "True"),
+    "health_monitor": os.environ.get("EAGLE_HEALTH_INTERNAL", "1")
+    not in ("0", "false", "False"),
 }
+
+
+def _collect_health() -> Dict[str, Any]:
+    return run_health_checks(
+        db=db,
+        pqc=pqc,
+        detector=ai_detector,
+        uptime_seconds=int(time.time() - start_time),
+        packets_scanned=_packets,
+        live_monitor=bool(system_config.get("live_monitor")),
+    )
+
+
+async def internal_health_loop():
+    """Periodic self-check written to audit log."""
+    global _last_health
+    interval = float(os.environ.get("EAGLE_HEALTH_INTERNAL_INTERVAL", "60"))
+    logger.info(f"Internal health loop started interval={interval}s")
+    try:
+        while _running:
+            report = await asyncio.to_thread(_collect_health)
+            _last_health = report
+            db.add_audit(
+                "health_check",
+                {
+                    "status": report.get("status"),
+                    "failed": report.get("failed"),
+                    "uptime": report.get("uptime_seconds"),
+                },
+            )
+            if report.get("status") != "ok":
+                logger.warning(f"Health degraded: failed={report.get('failed')}")
+            else:
+                logger.info("Health check OK")
+            await asyncio.sleep(interval)
+    except asyncio.CancelledError:
+        logger.info("Internal health loop cancelled")
+        raise
 
 
 async def live_monitor_loop():
@@ -113,25 +156,28 @@ async def live_monitor_loop():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _monitor_task, _running
+    global _monitor_task, _health_task, _running
     _running = True
     db.add_audit("startup", {"version": VERSION, "seal": SEAL, "pqc": pqc.get_status()})
     if system_config.get("live_monitor"):
         _monitor_task = asyncio.create_task(live_monitor_loop())
+    if system_config.get("health_monitor"):
+        _health_task = asyncio.create_task(internal_health_loop())
     yield
     _running = False
-    if _monitor_task:
-        _monitor_task.cancel()
-        try:
-            await _monitor_task
-        except asyncio.CancelledError:
-            pass
+    for task in (_monitor_task, _health_task):
+        if task:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
     db.add_audit("shutdown", {})
 
 
 app = FastAPI(
     title="EAGLE-X v3.3 REST API",
-    description="Operational cybersecurity monitor with real host metrics, hybrid PQC, optional pcap",
+    description="Operational cybersecurity monitor with health checks",
     version=VERSION,
     lifespan=lifespan,
 )
@@ -179,6 +225,7 @@ async def read_dashboard():
 @app.get("/health")
 @app.get("/api/health")
 async def health():
+    """Lightweight liveness probe for orchestrators."""
     return {
         "status": "ok",
         "version": VERSION,
@@ -187,6 +234,37 @@ async def health():
         "packets_scanned": _packets,
         "pqc_mode": pqc.mode,
     }
+
+
+@app.get("/api/health/deep")
+async def health_deep():
+    """Deep component checks (disk, db, crypto, AI, host)."""
+    report = await asyncio.to_thread(_collect_health)
+    code = 200 if report["status"] in ("ok", "degraded") else 503
+    return JSONResponse(content=report, status_code=code)
+
+
+@app.get("/api/ready")
+async def readiness():
+    """Readiness: database + crypto must pass."""
+    report = await asyncio.to_thread(_collect_health)
+    critical = {"database", "crypto"}
+    failed_critical = [c for c in report.get("failed", []) if c in critical]
+    ready = len(failed_critical) == 0
+    body = {
+        "ready": ready,
+        "status": "ready" if ready else "not_ready",
+        "failed_critical": failed_critical,
+        "uptime_seconds": report.get("uptime_seconds"),
+    }
+    return JSONResponse(content=body, status_code=200 if ready else 503)
+
+
+@app.get("/api/health/last")
+async def health_last():
+    if not _last_health:
+        return {"status": "pending", "message": "No internal health sample yet"}
+    return _last_health
 
 
 @app.get("/api/status")
@@ -202,6 +280,8 @@ async def get_status():
         "packet_capture": pcap.status(),
         "system_integrity": 100.0,
         "live_monitor": system_config.get("live_monitor"),
+        "health_monitor": system_config.get("health_monitor"),
+        "last_health_status": _last_health.get("status"),
     }
 
 

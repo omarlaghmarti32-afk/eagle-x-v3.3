@@ -3,7 +3,6 @@
 
 ARG ENABLE_PQC=1
 
-# ── Stage 1: build liboqs + Python deps ───────────────────────────────────────
 FROM python:3.11-slim AS builder
 ARG ENABLE_PQC=1
 
@@ -14,7 +13,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates wget \
     && rm -rf /var/lib/apt/lists/*
 
-# Build liboqs from source when ENABLE_PQC=1 (pinned to match liboqs-python)
 RUN if [ "$ENABLE_PQC" = "1" ]; then \
       git clone --depth 1 --branch 0.16.0 https://github.com/open-quantum-safe/liboqs.git && \
       cmake -S liboqs -B liboqs/build -GNinja \
@@ -45,7 +43,6 @@ RUN if [ "$ENABLE_PQC" = "1" ]; then \
       || echo "oqs import deferred to runtime"; \
     fi
 
-# ── Stage 2: runtime ──────────────────────────────────────────────────────────
 FROM python:3.11-slim AS runtime
 ARG ENABLE_PQC=1
 
@@ -68,6 +65,7 @@ RUN echo "/usr/local/lib" > /etc/ld.so.conf.d/local.conf && ldconfig || true
 COPY eaglex_v33.py api_server.py dashboard.html LICENSE signature.json \
      one-pager-technical.md compliance-report.md ./
 COPY core/ core/
+COPY scripts/ scripts/
 
 RUN chown -R eaglex:eaglex /app
 USER eaglex
@@ -82,8 +80,8 @@ ENV EAGLE_MODE=production \
     LD_LIBRARY_PATH=/usr/local/lib \
     ENABLE_PQC=${ENABLE_PQC}
 
-HEALTHCHECK --interval=30s --timeout=10s --start-period=25s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/api/health')" || exit 1
+HEALTHCHECK --interval=20s --timeout=8s --start-period=25s --retries=3 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/api/ready')" || exit 1
 
 EXPOSE 8080
 CMD ["uvicorn", "api_server:app", "--host", "0.0.0.0", "--port", "8080"]
