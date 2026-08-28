@@ -14,9 +14,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates wget \
     && rm -rf /var/lib/apt/lists/*
 
-# Build liboqs from source when ENABLE_PQC=1 (pinned release)
+# Build liboqs from source when ENABLE_PQC=1 (pinned to match liboqs-python)
 RUN if [ "$ENABLE_PQC" = "1" ]; then \
-      git clone --depth 1 --branch 0.12.0 https://github.com/open-quantum-safe/liboqs.git && \
+      git clone --depth 1 --branch 0.16.0 https://github.com/open-quantum-safe/liboqs.git && \
       cmake -S liboqs -B liboqs/build -GNinja \
         -DCMAKE_INSTALL_PREFIX=/usr/local \
         -DBUILD_SHARED_LIBS=ON \
@@ -36,13 +36,12 @@ ENV OQS_INSTALL_PATH=/usr/local
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt && \
     if [ "$ENABLE_PQC" = "1" ]; then \
-      pip install --no-cache-dir "liboqs-python>=0.12.0" scapy>=2.5.0 || \
+      pip install --no-cache-dir "liboqs-python==0.16.0" "scapy>=2.5.0" || \
       pip install --no-cache-dir -r requirements-optional.txt || true; \
     fi
 
-# Smoke-import oqs so wheel links against installed liboqs (best effort)
 RUN if [ "$ENABLE_PQC" = "1" ]; then \
-      python -c "import oqs; print('oqs OK', oqs.get_enabled_kem_mechanisms()[:3])" \
+      python -c "import oqs; print('oqs OK', list(oqs.get_enabled_kem_mechanisms())[:5])" \
       || echo "oqs import deferred to runtime"; \
     fi
 
@@ -64,7 +63,7 @@ COPY --from=builder /usr/local/bin /usr/local/bin
 COPY --from=builder /usr/local/lib /usr/local/lib
 COPY --from=builder /usr/local/include /usr/local/include
 
-RUN ldconfig || true
+RUN echo "/usr/local/lib" > /etc/ld.so.conf.d/local.conf && ldconfig || true
 
 COPY eaglex_v33.py api_server.py dashboard.html LICENSE signature.json \
      one-pager-technical.md compliance-report.md ./
