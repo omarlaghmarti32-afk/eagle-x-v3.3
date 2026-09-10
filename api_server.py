@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""EAGLE-X v3.3 – Production FastAPI server with live monitoring."""
+"""EAGLE-X v3.3 – Production FastAPI server with live monitoring + security hardening."""
 
 from __future__ import annotations
 
@@ -11,17 +11,33 @@ import time
 from contextlib import asynccontextmanager
 from typing import Any, Dict, List, Optional
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Response
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel, Field
 
 from core.ai_detector import AIThreatDetector
-from core.config import API_TOKEN, FEATURE_NAMES, LOG_DIR, SEAL, VERSION
+from core.config import (
+    API_TOKEN,
+    FEATURE_NAMES,
+    LOG_DIR,
+    PROTECT_READ_APIS,
+    SEAL,
+    VERSION,
+)
 from core.health import run_health_checks
 from core.network_monitor import NetworkMonitor
 from core.packet_capture import PacketCapture
 from core.pqc_manager import PQCManager
+from core.security import (
+    SecurityHeadersMiddleware,
+    assert_runtime_token_policy,
+    client_ip,
+    cors_origin_list,
+    rate_limiter,
+    require_token,
+    token_is_weak,
+)
 from core.self_healing import SelfHealingEngine
 from core.threat_db import ThreatDB
 
@@ -158,6 +174,11 @@ async def live_monitor_loop():
 async def lifespan(app: FastAPI):
     global _monitor_task, _health_task, _running
     _running = True
+    assert_runtime_token_policy()
+    if token_is_weak(API_TOKEN):
+        logger.warning(
+            "Weak/default EAGLE_API_TOKEN in use — set a strong secret before production"
+        )
     db.add_audit("startup", {"version": VERSION, "seal": SEAL, "pqc": pqc.get_status()})
     if system_config.get("live_monitor"):
         _monitor_task = asyncio.create_task(live_monitor_loop())
@@ -177,29 +198,46 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="EAGLE-X v3.3 REST API",
-    description="Operational cybersecurity monitor with health checks",
+    description="Operational cybersecurity monitor with health checks + hardened API",
     version=VERSION,
     lifespan=lifespan,
 )
 
+_origins = cors_origin_list()
+app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=_origins,
+    allow_credentials=_origins != ["*"],
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 
 
-def require_token(authorization: Optional[str] = Header(default=None)):
-    if not API_TOKEN:
-        return True
-    if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Missing Bearer token")
-    token = authorization.split(" ", 1)[1].strip()
-    if token != API_TOKEN:
-        raise HTTPException(status_code=403, detail="Invalid token")
-    return True
+@app.middleware("http")
+async def rate_limit_sensitive(request: Request, call_next):
+    path = request.url.path
+    if (
+        path.startswith("/api/")
+        and path not in ("/api/health", "/api/ready", "/api/health/deep", "/api/health/last")
+        and request.method not in ("GET", "HEAD", "OPTIONS")
+    ):
+        try:
+            rate_limiter.check(client_ip(request))
+        except Exception as exc:
+            if hasattr(exc, "status_code"):
+                return JSONResponse(
+                    {"detail": getattr(exc, "detail", "error")},
+                    status_code=exc.status_code,
+                )
+            raise
+    return await call_next(request)
+
+
+def _guard_read(request: Request) -> None:
+    if PROTECT_READ_APIS:
+        require_token(request.headers.get("authorization"))
+        rate_limiter.check(client_ip(request))
 
 
 class PacketData(BaseModel):
@@ -233,6 +271,8 @@ async def health():
         "uptime_seconds": int(time.time() - start_time),
         "packets_scanned": _packets,
         "pqc_mode": pqc.mode,
+        "auth_token_weak": token_is_weak(API_TOKEN),
+        "protect_read_apis": PROTECT_READ_APIS,
     }
 
 
@@ -268,7 +308,8 @@ async def health_last():
 
 
 @app.get("/api/status")
-async def get_status():
+async def get_status(request: Request):
+    _guard_read(request)
     return {
         "version": VERSION,
         "seal": SEAL,
@@ -286,7 +327,8 @@ async def get_status():
 
 
 @app.get("/api/stats")
-async def get_stats():
+async def get_stats(request: Request):
+    _guard_read(request)
     snap = monitor.one_shot()
     return {
         "packets_scanned": _packets,
@@ -351,7 +393,8 @@ async def pcap_burst(_: bool = Depends(require_token)):
 
 
 @app.get("/api/threats")
-async def get_threats():
+async def get_threats(request: Request):
+    _guard_read(request)
     threats = db.list_threats(50)
     normalized = []
     for t in threats:
@@ -373,7 +416,8 @@ async def get_blocklist(_: bool = Depends(require_token)):
 
 
 @app.get("/api/config")
-async def get_config():
+async def get_config(request: Request):
+    _guard_read(request)
     return system_config
 
 

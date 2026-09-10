@@ -70,13 +70,14 @@ COPY scripts/ scripts/
 RUN chown -R eaglex:eaglex /app
 USER eaglex
 
+# No baked-in API token. Set EAGLE_API_TOKEN at runtime.
 ENV EAGLE_MODE=production \
-    EAGLE_VERSION=3.3 \
+    EAGLE_VERSION=3.3.1 \
     EAGLE_SEAL=310-70-94 \
     LOG_LEVEL=INFO \
     EAGLE_LOG_DIR=/var/log/eagle-x \
     EAGLE_DATA_DIR=/app/data \
-    EAGLE_API_TOKEN=eagle-x-dev-token-change-me \
+    EAGLE_REQUIRE_STRONG_TOKEN=1 \
     LD_LIBRARY_PATH=/usr/local/lib \
     ENABLE_PQC=${ENABLE_PQC}
 

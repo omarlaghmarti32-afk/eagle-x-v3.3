@@ -10,11 +10,24 @@ LOG_DIR = Path(os.environ.get("EAGLE_LOG_DIR", "/tmp"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 
-VERSION = "3.3"
+VERSION = "3.3.1"
 SEAL = "310-70-94"
 
 # Security
 API_TOKEN = os.environ.get("EAGLE_API_TOKEN", "eagle-x-dev-token-change-me")
+REQUIRE_STRONG_TOKEN = os.environ.get("EAGLE_REQUIRE_STRONG_TOKEN", "0") not in (
+    "0",
+    "false",
+    "False",
+)
+CORS_ORIGINS = os.environ.get("EAGLE_CORS_ORIGINS", "*")
+RATE_LIMIT_PER_MIN = int(os.environ.get("EAGLE_RATE_LIMIT_PER_MIN", "120"))
+PROTECT_READ_APIS = os.environ.get("EAGLE_PROTECT_READ_APIS", "0") not in (
+    "0",
+    "false",
+    "False",
+)
+
 SENSITIVITY = float(os.environ.get("EAGLE_AI_SENSITIVITY", "0.75"))
 MONITOR_INTERVAL = float(os.environ.get("EAGLE_MONITOR_INTERVAL", "2.0"))
 
