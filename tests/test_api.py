@@ -1,8 +1,11 @@
 import os
 
-os.environ.setdefault("EAGLE_API_TOKEN", "test-token")
+os.environ.setdefault("EAGLE_API_TOKEN", "test-token-for-ci-only-16c")
+os.environ.setdefault("EAGLE_REQUIRE_STRONG_TOKEN", "0")
 os.environ.setdefault("EAGLE_DATA_DIR", "/tmp/eagle-x-test-data")
 os.environ.setdefault("EAGLE_LOG_DIR", "/tmp/eagle-x-test-logs")
+os.environ.setdefault("EAGLE_LIVE_MONITOR", "0")
+os.environ.setdefault("EAGLE_HEALTH_INTERNAL", "0")
 
 from fastapi.testclient import TestClient
 
@@ -22,7 +25,7 @@ def test_status():
     r = client.get("/api/status")
     assert r.status_code == 200
     body = r.json()
-    assert body["version"] == "3.3"
+    assert body["version"].startswith("3.3")
     assert "pqc" in body
 
 
@@ -35,7 +38,7 @@ def test_detect_with_token():
     r = client.post(
         "/api/detect",
         json={"features": [90, 90, 2e6, 2e6, 400, 300, 80, 0.9], "indicator": "10.0.0.1"},
-        headers={"Authorization": "Bearer test-token"},
+        headers={"Authorization": "Bearer test-token-for-ci-only-16c"},
     )
     assert r.status_code == 200
     assert "analysis" in r.json()

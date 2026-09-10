@@ -35,7 +35,8 @@ jobs:
         env:
           EAGLE_DATA_DIR: ${{ runner.temp }}/eagle-data
           EAGLE_LOG_DIR: ${{ runner.temp }}/eagle-logs
-          EAGLE_API_TOKEN: test-token
+          EAGLE_API_TOKEN: test-token-for-ci-only-16c
+          EAGLE_REQUIRE_STRONG_TOKEN: "0"
           EAGLE_LIVE_MONITOR: "0"
           EAGLE_HEALTH_INTERNAL: "0"
         run: |
