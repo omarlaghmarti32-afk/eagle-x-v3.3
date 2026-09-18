@@ -14,7 +14,12 @@ services:
       LOG_LEVEL: INFO
       EAGLE_LOG_DIR: /var/log/eagle-x
       EAGLE_DATA_DIR: /app/data
-      EAGLE_API_TOKEN: ${EAGLE_API_TOKEN:-eagle-x-dev-token-change-me}
+      # REQUIRED: set in .env — no weak default
+      EAGLE_API_TOKEN: ${EAGLE_API_TOKEN:?set EAGLE_API_TOKEN in .env}
+      EAGLE_REQUIRE_STRONG_TOKEN: ${EAGLE_REQUIRE_STRONG_TOKEN:-1}
+      EAGLE_CORS_ORIGINS: ${EAGLE_CORS_ORIGINS:-*}
+      EAGLE_PROTECT_READ_APIS: ${EAGLE_PROTECT_READ_APIS:-0}
+      EAGLE_RATE_LIMIT_PER_MIN: ${EAGLE_RATE_LIMIT_PER_MIN:-120}
       EAGLE_AI_SENSITIVITY: "0.75"
       EAGLE_MONITOR_INTERVAL: "2.0"
       EAGLE_LIVE_MONITOR: "1"
@@ -25,6 +30,8 @@ services:
       - eagle_data:/app/data
       - eagle_logs:/var/log/eagle-x
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/api/ready')"]
       interval: 20s
@@ -49,6 +56,8 @@ services:
       - eagle_logs:/var/log/eagle-x
     command: ["python", "scripts/health_monitor.py"]
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
 
   caddy:
     image: caddy:2.8-alpine

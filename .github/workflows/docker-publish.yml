@@ -58,7 +58,8 @@ jobs:
         env:
           EAGLE_LIVE_MONITOR: "0"
           EAGLE_HEALTH_INTERNAL: "0"
-          EAGLE_API_TOKEN: ci-verify-token
+          EAGLE_API_TOKEN: ci-verify-token-16chars
+          EAGLE_REQUIRE_STRONG_TOKEN: "0"
         run: |
           set -euo pipefail
           IMAGE=$(echo "${{ steps.meta.outputs.tags }}" | head -n1)
@@ -70,7 +71,8 @@ jobs:
             -p 8080:8080 \
             -e EAGLE_LIVE_MONITOR=0 \
             -e EAGLE_HEALTH_INTERNAL=0 \
-            -e EAGLE_API_TOKEN=ci-verify-token \
+            -e EAGLE_API_TOKEN=ci-verify-token-16chars \
+            -e EAGLE_REQUIRE_STRONG_TOKEN=0 \
             -e EAGLE_DATA_DIR=/tmp/eagle-data \
             -e EAGLE_LOG_DIR=/tmp/eagle-logs \
             "$IMAGE"

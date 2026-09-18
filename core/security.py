@@ -1,11 +1,13 @@
-"""Security helpers for EAGLE-X v3.3: auth, rate limit, headers."""
+"""Security helpers for EAGLE-X v3.3: auth, rate limit, headers, SSRF."""
 
 from __future__ import annotations
 
+import ipaddress
 import secrets
 import time
 from collections import defaultdict, deque
 from typing import Deque
+from urllib.parse import urlparse
 
 from fastapi import Header, HTTPException, Request
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -20,6 +22,8 @@ _DEFAULT_TOKENS = {
     "change-me",
     "change-me-to-a-long-random-secret",
     "test-token",
+    "test-token-for-ci-only-16c",
+    "ci-verify-token",
 }
 
 
@@ -74,6 +78,39 @@ def client_ip(request: Request) -> str:
     if request.client:
         return request.client.host or "unknown"
     return "unknown"
+
+
+def is_safe_webhook_url(url: str) -> bool:
+    """Block SSRF targets: localhost, private, link-local, cloud metadata."""
+    try:
+        parsed = urlparse(url.strip())
+    except Exception:
+        return False
+    if parsed.scheme not in ("http", "https"):
+        return False
+    host = (parsed.hostname or "").lower()
+    if not host:
+        return False
+    if host in {"localhost", "metadata.google.internal", "metadata"}:
+        return False
+    if host.endswith(".local") or host.endswith(".internal"):
+        return False
+    try:
+        ip = ipaddress.ip_address(host)
+        if (
+            ip.is_private
+            or ip.is_loopback
+            or ip.is_link_local
+            or ip.is_reserved
+            or ip.is_multicast
+            or ip.is_unspecified
+        ):
+            return False
+        if str(ip) in {"169.254.169.254", "169.254.170.2"}:
+            return False
+    except ValueError:
+        pass
+    return True
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):

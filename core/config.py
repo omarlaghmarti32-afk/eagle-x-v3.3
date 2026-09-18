@@ -10,7 +10,7 @@ LOG_DIR = Path(os.environ.get("EAGLE_LOG_DIR", "/tmp"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 
-VERSION = "3.3.1"
+VERSION = "3.3.2"
 SEAL = "310-70-94"
 
 # Security
