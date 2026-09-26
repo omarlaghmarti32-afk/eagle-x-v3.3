@@ -1,0 +1,17 @@
+{
+  "site": {
+    "id": "${FLEEK_SITE_ID}",
+    "name": "eagle-x-dashboard",
+    "framework": "static",
+    "publishDirectory": ".",
+    "buildCommand": "printf 'Static dashboard: API_URL is configured by the reverse proxy\\n'",
+    "environment": {
+      "API_ORIGIN": "${EAGLE_API_ORIGIN}"
+    }
+  },
+  "deploy": {
+    "protocol": "ipfs",
+    "autoPublish": false,
+    "gateway": "https://ipfs.io/ipfs/{CID}"
+  }
+}

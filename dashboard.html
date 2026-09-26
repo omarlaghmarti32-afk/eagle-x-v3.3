@@ -70,10 +70,10 @@
 
             <div class="bg-card p-6 rounded-2xl space-y-4">
                 <h3 class="text-xl font-bold seal-gold">التحكم</h3>
-                <input id="api-token" type="password" placeholder="Bearer token" class="w-full bg-gray-900 border border-gray-700 rounded-lg p-2.5 text-white" value="eagle-x-dev-token-change-me">
+                <input id="api-token" type="password" placeholder="أدخل EAGLE_API_TOKEN" class="w-full bg-gray-900 border border-gray-700 rounded-lg p-2.5 text-white">
                 <button onclick="triggerScan()" class="w-full bg-yellow-600 hover:bg-yellow-500 text-black font-bold py-3 rounded-xl">فحص فوري</button>
                 <button onclick="triggerHeal()" class="w-full bg-red-600 hover:bg-red-500 text-white font-bold py-3 rounded-xl">اختبار الشفاء</button>
-                <p class="text-xs text-gray-500">الافتراضي للتطوير فقط — غيّر EAGLE_API_TOKEN في الإنتاج.</p>
+                <p class="text-xs text-gray-500">يُحفظ التوكن في الذاكرة فقط ولا يُضمّن في الصفحة.</p>
             </div>
         </div>
     </div>
@@ -82,6 +82,33 @@
         function authHeaders() {
             const t = document.getElementById('api-token').value.trim();
             return t ? { 'Authorization': 'Bearer ' + t, 'Content-Type': 'application/json' } : { 'Content-Type': 'application/json' };
+        }
+
+        let liveSocket;
+        function connectLiveUpdates() {
+            const token = document.getElementById('api-token').value.trim();
+            if (!token) return;
+            const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+            liveSocket = new WebSocket(protocol + '//' + location.host + '/ws');
+            liveSocket.onopen = () => liveSocket.send(JSON.stringify({ token }));
+            liveSocket.onmessage = (event) => {
+                const message = JSON.parse(event.data);
+                if (message.type === 'sample') {
+                    document.getElementById('stat-packets').innerText =
+                        (message.packets_scanned || 0).toLocaleString();
+                    if (message.host) {
+                        document.getElementById('stat-host').innerText =
+                            Math.round(message.host.cpu_percent || 0) + '% / ' +
+                            Math.round(message.host.mem_percent || 0) + '%';
+                    }
+                    document.getElementById('status-text').innerText = 'اتصال حي';
+                }
+                if (message.type === 'threat') fetchThreats();
+            };
+            liveSocket.onclose = () => {
+                document.getElementById('status-text').innerText = 'إعادة الاتصال...';
+                setTimeout(connectLiveUpdates, 3000);
+            };
         }
 
         async function fetchStats() {
@@ -140,7 +167,8 @@
             alert('نتيجة الشفاء: ' + JSON.stringify(data.actions || data));
         }
 
-        setInterval(() => { fetchStats(); fetchThreats(); }, 3000);
+        document.getElementById('api-token').addEventListener('change', connectLiveUpdates);
+        setInterval(() => { fetchStats(); fetchThreats(); }, 5000);
         fetchStats(); fetchThreats();
     </script>
 </body>

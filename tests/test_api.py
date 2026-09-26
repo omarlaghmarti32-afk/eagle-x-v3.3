@@ -1,5 +1,7 @@
 import os
 
+import pytest
+
 os.environ.setdefault("EAGLE_API_TOKEN", "test-token-for-ci-only-16c")
 os.environ.setdefault("EAGLE_REQUIRE_STRONG_TOKEN", "0")
 os.environ.setdefault("EAGLE_DATA_DIR", "/tmp/eagle-x-test-data")
@@ -48,3 +50,18 @@ def test_threats_endpoint():
     r = client.get("/api/threats")
     assert r.status_code == 200
     assert "threats" in r.json()
+
+
+def test_websocket_requires_valid_token():
+    with pytest.raises(Exception):
+        with client.websocket_connect("/ws") as websocket:
+            websocket.send_json({"token": "wrong-token"})
+            websocket.receive_json()
+
+
+def test_websocket_authenticates_and_sends_ready():
+    with client.websocket_connect("/ws") as websocket:
+        websocket.send_json({"token": "test-token-for-ci-only-16c"})
+        message = websocket.receive_json()
+        assert message["type"] == "ready"
+        assert message["version"].startswith("3.3")

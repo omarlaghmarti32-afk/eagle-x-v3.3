@@ -1,0 +1,24 @@
+{
+  "name": "eagle-x-api",
+  "runtime": "docker",
+  "image": "ghcr.io/omarlaghmarti32-afk/eagle-x-v3.3:3.3",
+  "port": 8080,
+  "healthcheck": {
+    "path": "/api/ready",
+    "intervalSeconds": 30,
+    "timeoutSeconds": 8
+  },
+  "env": {
+    "EAGLE_MODE": "production",
+    "EAGLE_REQUIRE_STRONG_TOKEN": "1",
+    "EAGLE_PROTECT_READ_APIS": "1",
+    "EAGLE_API_TOKEN": "${EAGLE_API_TOKEN}",
+    "EAGLE_CORS_ORIGINS": "${EAGLE_CORS_ORIGINS}"
+  },
+  "replicas": 1,
+  "persistentVolume": {
+    "enabled": true,
+    "mountPath": "/app/data",
+    "sizeGiB": 2
+  }
+}

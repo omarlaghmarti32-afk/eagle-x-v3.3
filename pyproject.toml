@@ -1,6 +1,6 @@
 [project]
 name = "eagle-x"
-version = "3.3.0"
+version = "3.3.2"
 description = "EAGLE-X v3.3 operational cybersecurity monitor"
 requires-python = ">=3.11"
 dependencies = [
@@ -11,6 +11,7 @@ dependencies = [
   "scipy>=1.10.0",
   "fastapi>=0.95.0",
   "uvicorn>=0.20.0",
+  "websockets>=12.0",
   "pydantic>=2.0.0",
   "jinja2>=3.0.0",
   "psutil>=5.9.0",

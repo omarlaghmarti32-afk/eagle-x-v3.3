@@ -6,12 +6,13 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import secrets
 import sys
 import time
 from contextlib import asynccontextmanager
 from typing import Any, Dict, List, Optional
 
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel, Field
@@ -64,6 +65,33 @@ _health_task: Optional[asyncio.Task] = None
 _packets = 0
 _running = True
 _last_health: Dict[str, Any] = {}
+
+
+class LiveConnectionManager:
+    """Small in-process WebSocket fan-out for a single API instance."""
+
+    def __init__(self) -> None:
+        self._connections: set[WebSocket] = set()
+
+    async def connect(self, websocket: WebSocket) -> None:
+        await websocket.accept()
+        self._connections.add(websocket)
+
+    def disconnect(self, websocket: WebSocket) -> None:
+        self._connections.discard(websocket)
+
+    async def broadcast(self, message: Dict[str, Any]) -> None:
+        stale: list[WebSocket] = []
+        for websocket in tuple(self._connections):
+            try:
+                await websocket.send_json(message)
+            except Exception:
+                stale.append(websocket)
+        for websocket in stale:
+            self.disconnect(websocket)
+
+
+live_connections = LiveConnectionManager()
 
 system_config: Dict[str, Any] = {
     "mode": os.environ.get("EAGLE_MODE", "production"),
@@ -142,6 +170,18 @@ async def live_monitor_loop():
                     snap.get("mem_percent", 0.0),
                 )
 
+            await live_connections.broadcast(
+                {
+                    "type": "sample",
+                    "packets_scanned": _packets,
+                    "host": snap,
+                    "analysis": {
+                        "threat_detected": bool(analysis.get("threat_detected")),
+                        "severity": analysis.get("severity"),
+                    },
+                }
+            )
+
             if analysis.get("threat_detected"):
                 sealed = pqc.seal(analysis)
                 tid = db.add_threat(
@@ -158,6 +198,15 @@ async def live_monitor_loop():
                 )
                 logger.warning(
                     f"Threat #{tid} {analysis.get('threat_type')} conf={analysis.get('confidence'):.2f}"
+                )
+                await live_connections.broadcast(
+                    {
+                        "type": "threat",
+                        "threat_id": tid,
+                        "threat_type": analysis.get("threat_type", "UNKNOWN"),
+                        "severity": analysis.get("severity", "medium"),
+                        "confidence": float(analysis.get("confidence", 0)),
+                    }
                 )
                 if system_config.get("self_healing_enabled"):
                     result = await healer.heal(
@@ -241,13 +290,16 @@ def _guard_read(request: Request) -> None:
 
 
 class PacketData(BaseModel):
-    features: List[float] = Field(..., description="Host feature vector")
-    indicator: Optional[str] = None
+    features: List[float] = Field(
+        ..., min_length=len(FEATURE_NAMES), max_length=len(FEATURE_NAMES),
+        description="Host feature vector"
+    )
+    indicator: Optional[str] = Field(default=None, max_length=256)
 
 
 class HealRequest(BaseModel):
-    threat_type: str = "MANUAL_TEST"
-    indicator: Optional[str] = None
+    threat_type: str = Field(default="MANUAL_TEST", max_length=64)
+    indicator: Optional[str] = Field(default=None, max_length=256)
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -305,6 +357,29 @@ async def health_last():
     if not _last_health:
         return {"status": "pending", "message": "No internal health sample yet"}
     return _last_health
+
+
+@app.websocket("/ws")
+async def live_updates(websocket: WebSocket):
+    """Authenticated live stream; the client sends {\"token\": ...} first."""
+    await live_connections.connect(websocket)
+    try:
+        try:
+            auth = await asyncio.wait_for(websocket.receive_json(), timeout=5)
+        except (asyncio.TimeoutError, ValueError):
+            await websocket.close(code=1008, reason="authentication required")
+            return
+        provided = str(auth.get("token", "")) if isinstance(auth, dict) else ""
+        if not API_TOKEN or not secrets.compare_digest(provided, API_TOKEN):
+            await websocket.close(code=1008, reason="invalid token")
+            return
+        await websocket.send_json({"type": "ready", "version": VERSION})
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        pass
+    finally:
+        live_connections.disconnect(websocket)
 
 
 @app.get("/api/status")

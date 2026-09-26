@@ -1,0 +1,53 @@
+# Akash SDL for the EAGLE-X API.
+# Replace the image registry reference and resource values after publishing an image.
+# No wallet, provider, or secret is stored in this file.
+version: "2.0"
+
+services:
+  eagle-x:
+    image: ghcr.io/omarlaghmarti32-afk/eagle-x-v3.3:3.3
+    expose:
+      - port: 8080
+        as: 8080
+        to:
+          - global: true
+    env:
+      - EAGLE_MODE=production
+      - EAGLE_REQUIRE_STRONG_TOKEN=1
+      - EAGLE_PROTECT_READ_APIS=1
+      - EAGLE_CORS_ORIGINS=${EAGLE_CORS_ORIGINS}
+      - EAGLE_API_TOKEN=${EAGLE_API_TOKEN}
+      - EAGLE_LIVE_MONITOR=1
+      - EAGLE_HEALTH_INTERNAL=1
+      - EAGLE_DATA_DIR=/app/data
+      - EAGLE_LOG_DIR=/tmp/eagle-x
+    params:
+      storage:
+        data:
+          mount: /app/data
+
+profiles:
+  compute:
+    eagle-x:
+      resources:
+        cpu:
+          units: 1.0
+        memory:
+          size: 1Gi
+        storage:
+          size: 2Gi
+  placement:
+    dcloud:
+      pricing:
+        eagle-x:
+          denom: uakt
+          amount: 1000
+      signedBy:
+        anyOf: []
+      attributes: {}
+
+deployment:
+  eagle-x:
+    dcloud:
+      profile: eagle-x
+      count: 1

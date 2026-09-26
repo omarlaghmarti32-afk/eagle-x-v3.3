@@ -1,6 +1,6 @@
 # EAGLE-X v3.3
 
-Quantum-Resistant Cybersecurity Titan — enterprise-grade security system with AI prediction, self-healing, and quantum resistance.
+Defensive cybersecurity monitoring service with explainable anomaly detection, auditable response simulation, and optional post-quantum library integration.
 
 **https://github.com/omarlaghmarti32-afk/eagle-x-v3.3** · **v3.3.2**
 
@@ -52,6 +52,22 @@ See [SECURITY.md](SECURITY.md) for reporting and operator checklist.
 | POST | `/api/detect` | Bearer |
 | POST | `/api/heal` | Bearer |
 | GET | `/api/blocklist` | Bearer |
+| WebSocket | `/ws` | token message first |
+
+The dashboard uses `/ws` for authenticated live samples and threat events, with
+short-interval REST refresh as a fallback. Send `{"token":"<EAGLE_API_TOKEN>"}`
+as the first WebSocket message; use `wss://` behind TLS.
+
+## Decentralized deployment templates
+
+- [`deploy.yml`](deploy.yml): Akash SDL for the backend.
+- [`fleek.json`](fleek.json): Fleek/IPFS static dashboard template.
+- [`spheron.json`](spheron.json): Spheron Docker alternative.
+- [`DEPLOYMENT.md`](DEPLOYMENT.md): operator steps and secret-handling rules.
+- [`ARCHITECTURE.md`](ARCHITECTURE.md): components, trust boundaries, and scaling notes.
+
+These files contain placeholders only. No wallet, provider lease, API token, or
+paid deployment is created by CI.
 
 ## Tests
 
