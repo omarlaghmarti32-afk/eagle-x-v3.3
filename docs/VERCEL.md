@@ -2,6 +2,8 @@
 
 ## نقطة الدخول
 
+يستخدم Vercel `main:app` من `pyproject.toml` ويوجّه الطلبات إلى FastAPI مباشرة؛ لذلك لا تضف إعادة كتابة شاملة مثل `/(.*) -> /api/index` في `vercel.json`. هذه القاعدة ليست مطلوبة وقد تغيّر المسار الذي يستلمه FastAPI.
+
 المعتمد في `pyproject.toml`:
 
 ```toml
@@ -59,5 +61,7 @@ vercel
 curl https://<project>.vercel.app/api/health
 curl https://<project>.vercel.app/api/ready
 ```
+
+قد تكون معاينات Vercel محمية بتسجيل الدخول. عندها قد يعيد الطلب العام صفحة أو تحويل المصادقة بدل JSON، وهذا لا يختبر استجابة FastAPI. استخدم `vercel curl <deployment-url>/api/health` من جلسة Vercel مصادق عليها للتحقق من المعاينة المحمية.
 
 إذا فشل البناء بسبب حجم التبعيات، استخدم `requirements-vercel.txt` كمحتوى `requirements.txt` مؤقتاً أو انشر عبر Docker على خادم.
