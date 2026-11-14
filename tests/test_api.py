@@ -65,3 +65,29 @@ def test_websocket_authenticates_and_sends_ready():
         message = websocket.receive_json()
         assert message["type"] == "ready"
         assert message["version"].startswith("3.3")
+
+
+def test_github_overview_requires_eagle_token():
+    r = client.get("/api/github/overview")
+    assert r.status_code in (401, 403)
+
+
+def test_github_overview_returns_service_snapshot_when_authenticated(monkeypatch):
+    import api_server
+
+    snapshot = {"connected": True, "summary": {"failed_workflows": 0}, "priorities": []}
+    monkeypatch.setattr(api_server, "get_github_overview", lambda: snapshot)
+    r = client.get(
+        "/api/github/overview",
+        headers={"Authorization": "Bearer test-token-for-ci-only-16c"},
+    )
+    assert r.status_code == 200
+    assert r.json() == snapshot
+
+
+def test_github_overview_rejects_invalid_eagle_token():
+    r = client.get(
+        "/api/github/overview",
+        headers={"Authorization": "Bearer not-the-eagle-token"},
+    )
+    assert r.status_code == 403

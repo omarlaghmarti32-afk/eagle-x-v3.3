@@ -26,6 +26,7 @@ from core.config import (
     SEAL,
     VERSION,
 )
+from core.github_command_center import get_github_overview
 from core.health import run_health_checks
 from core.network_monitor import NetworkMonitor
 from core.packet_capture import PacketCapture
@@ -414,6 +415,12 @@ async def get_stats(request: Request):
         "host": snap,
         "pcap_summary": pcap.summary_features() if pcap.samples else {},
     }
+
+
+@app.get("/api/github/overview")
+async def github_overview(_: bool = Depends(require_token)):
+    """Read-only GitHub health snapshot; always protected by the EAGLE-X token."""
+    return await asyncio.to_thread(get_github_overview)
 
 
 @app.post("/api/detect")

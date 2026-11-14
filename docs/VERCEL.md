@@ -37,7 +37,14 @@ EAGLE_LIVE_MONITOR=0
 EAGLE_HEALTH_INTERNAL=0
 EAGLE_DATA_DIR=/tmp/eagle-x-data
 EAGLE_LOG_DIR=/tmp/eagle-x-logs
+EAGLE_GITHUB_REPO=omarlaghmarti32-afk/eagle-x-v3.3
+EAGLE_GITHUB_TOKEN=
+EAGLE_GITHUB_CACHE_SECONDS=60
 ```
+
+Keep `EAGLE_GITHUB_TOKEN` in Vercel's server-side environment variables. Never
+place it in the static dashboard; `/api/github/overview` also requires the
+`EAGLE_API_TOKEN` Bearer header.
 
 ## النشر
 
