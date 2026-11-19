@@ -75,6 +75,20 @@ class ThreatDB:
                     mem REAL
                 );
 
+                CREATE TABLE IF NOT EXISTS telemetry_events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    source TEXT NOT NULL,
+                    external_id TEXT,
+                    event_type TEXT NOT NULL,
+                    asset_id INTEGER REFERENCES assets(id) ON DELETE SET NULL,
+                    occurred_at TEXT NOT NULL,
+                    received_at TEXT NOT NULL,
+                    metrics TEXT NOT NULL,
+                    UNIQUE(source, external_id)
+                );
+                CREATE INDEX IF NOT EXISTS idx_telemetry_events_received
+                    ON telemetry_events(received_at DESC);
+
                 CREATE TABLE IF NOT EXISTS assets (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     name TEXT NOT NULL UNIQUE,
@@ -209,6 +223,60 @@ class ThreatDB:
                 "INSERT INTO metrics (timestamp, packets_scanned, threats_detected, cpu, mem) VALUES (?, ?, ?, ?, ?)",
                 (ts, packets, threats, cpu, mem),
             )
+
+    def add_telemetry_event(
+        self,
+        source: str,
+        external_id: Optional[str],
+        event_type: str,
+        asset_id: Optional[int],
+        occurred_at: str,
+        metrics: Dict[str, float],
+    ) -> tuple[int, bool]:
+        """Persist a local event; source-scoped external IDs make retries idempotent."""
+        received_at = datetime.now(timezone.utc).isoformat()
+        with self._lock, self._conn() as conn:
+            cur = conn.execute(
+                """INSERT INTO telemetry_events
+                   (source, external_id, event_type, asset_id, occurred_at, received_at, metrics)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(source, external_id) DO NOTHING""",
+                (
+                    source,
+                    external_id,
+                    event_type,
+                    asset_id,
+                    occurred_at,
+                    received_at,
+                    json.dumps(metrics, sort_keys=True, allow_nan=False),
+                ),
+            )
+            if cur.rowcount:
+                return int(cur.lastrowid), True
+            row = conn.execute(
+                "SELECT id FROM telemetry_events WHERE source = ? AND external_id = ?",
+                (source, external_id),
+            ).fetchone()
+            if row is None:
+                raise RuntimeError("Telemetry event insert was ignored without an existing event")
+            return int(row["id"]), False
+
+    def list_telemetry_events(self, limit: int = 50) -> List[Dict[str, Any]]:
+        limit = max(1, min(int(limit), 200))
+        with self._lock, self._conn() as conn:
+            rows = conn.execute(
+                """SELECT e.*, a.name AS asset_name
+                   FROM telemetry_events AS e
+                   LEFT JOIN assets AS a ON a.id = e.asset_id
+                   ORDER BY e.id DESC LIMIT ?""",
+                (limit,),
+            ).fetchall()
+            events = []
+            for row in rows:
+                event = dict(row)
+                event["metrics"] = json.loads(event["metrics"])
+                events.append(event)
+            return events
 
     def add_asset(
         self,
@@ -360,7 +428,13 @@ class ThreatDB:
                 )
             return cur.rowcount > 0
 
-    def evaluate_detection_rules(self, metrics: Dict[str, Any]) -> Dict[str, Any]:
+    def evaluate_detection_rules(
+        self,
+        metrics: Dict[str, Any],
+        *,
+        asset_id: Optional[int] = None,
+        scope_to_asset: bool = False,
+    ) -> Dict[str, Any]:
         """Evaluate local telemetry; create one incident per breach episode."""
         compare = {
             "gt": lambda value, threshold: value > threshold,
@@ -377,6 +451,11 @@ class ThreatDB:
 
         with self._lock, self._conn() as conn:
             rules = conn.execute("SELECT * FROM detection_rules ORDER BY id").fetchall()
+            if scope_to_asset:
+                rules = [
+                    rule for rule in rules
+                    if rule["asset_id"] is None or rule["asset_id"] == asset_id
+                ]
             for rule in rules:
                 state = conn.execute(
                     "SELECT * FROM detection_rule_state WHERE rule_id = ?", (rule["id"],)

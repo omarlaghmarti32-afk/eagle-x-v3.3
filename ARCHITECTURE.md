@@ -18,7 +18,8 @@ FastAPI API (api_server.py)
    +--> PQCManager        ---> approved-library mode or explicit simulation
    +--> SelfHealingEngine ---> policy-controlled defensive simulation
    +--> Detection rules   ---> local metric thresholds, incident transitions
-   +--> ThreatDB          ---> SQLite threats, metrics, blocklist, assets, rules, incidents, audit
+   +--> ThreatDB          ---> SQLite threats, metrics, telemetry events, assets, rules, incidents, audit
+Local telemetry producers -> authenticated /api/telemetry/events -> validation -> rules -> SQLite
 
 Optional GitHub read-only view (off by default; enabled only by operator)
 Optional health-monitor sidecar -> /api/health/deep -> optional safe webhook
@@ -36,10 +37,12 @@ Optional health-monitor sidecar -> /api/health/deep -> optional safe webhook
    do not create duplicates, while a clear-then-rebreach starts a new incident.
 5. The API broadcasts non-sensitive sample summaries and threat events to authenticated WebSocket clients.
 6. Self-healing remains a simulation/policy layer. Any future real response must be separately reviewed, allow-listed, rate-limited, and auditable.
+7. Local producers may submit batches of up to 100 metric events. The API validates known metric names, stores the event locally, evaluates only global rules and rules linked to that event's asset, and broadcasts newly created incidents.
 
 ## Trust boundaries
 
 - **Client to API:** bearer token for REST mutations and an explicit first WebSocket message. TLS must terminate at Caddy or the deployment provider.
+- **Telemetry producer to API:** the event-ingestion endpoint requires the same bearer token, limits batch size, rejects unknown/non-finite metrics, and deduplicates retried events by source plus event ID. Submitted events and rule outcomes remain in local SQLite; the endpoint does not forward them to a third party.
 - **API to host:** psutil reads local telemetry. Optional packet capture requires explicit operator enablement and elevated host capabilities; it is off in the default Compose path.
 - **Default network behavior:** local host monitoring, AI and threshold detection, dashboard API, SQLite persistence, asset inventory, incident tracking, and audit work without an external SaaS account. The dashboard itself loads no CDN or third-party fonts. GitHub access is disabled unless `EAGLE_GITHUB_ENABLED=1`; the health webhook is unused unless explicitly configured.
 - **Sensitive local records:** asset and incident API routes always require the EAGLE-X bearer token, independently of the optional read-route protection setting.

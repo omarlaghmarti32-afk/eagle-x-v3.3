@@ -12,12 +12,13 @@ import sqlite3
 import sys
 import time
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Literal, Optional
 
-from fastapi import Depends, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from core.ai_detector import AIThreatDetector
 from core.config import (
@@ -351,6 +352,23 @@ class DetectionRuleStatusUpdate(BaseModel):
     enabled: bool
 
 
+class TelemetryEvent(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    source: str = Field(..., min_length=1, max_length=64)
+    event_type: str = Field(..., min_length=1, max_length=64)
+    event_id: Optional[str] = Field(default=None, max_length=128)
+    occurred_at: Optional[datetime] = None
+    asset_id: Optional[int] = Field(default=None, ge=1)
+    metrics: Dict[str, Any] = Field(..., min_length=1, max_length=len(FEATURE_NAMES))
+
+
+class TelemetryEventBatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    events: List[TelemetryEvent] = Field(..., min_length=1, max_length=100)
+
+
 @app.get("/", response_class=HTMLResponse)
 async def read_dashboard():
     path = os.path.join(os.path.dirname(__file__), "dashboard.html")
@@ -543,6 +561,137 @@ async def get_threats(request: Request):
 @app.get("/api/blocklist")
 async def get_blocklist(_: bool = Depends(require_token)):
     return {"blocks": db.list_blocks()}
+
+
+@app.get("/api/telemetry/events")
+async def list_telemetry_events(
+    limit: int = Query(default=50, ge=1, le=200),
+    _: bool = Depends(require_token),
+):
+    """Read recent events stored locally by authenticated telemetry producers."""
+    return {"events": db.list_telemetry_events(limit)}
+
+
+@app.post("/api/telemetry/events", status_code=202)
+async def ingest_telemetry_events(
+    batch: TelemetryEventBatch,
+    _: bool = Depends(require_token),
+):
+    """Store and evaluate a bounded batch of local metric events."""
+    allowed_metrics = set(FEATURE_NAMES)
+    normalized_events = []
+    for event in batch.events:
+        source = event.source.strip()
+        event_type = event.event_type.strip()
+        event_id = event.event_id.strip() if event.event_id is not None else None
+        if not source or not event_type:
+            raise HTTPException(status_code=422, detail="source and event_type cannot be blank")
+        if event_id == "":
+            raise HTTPException(status_code=422, detail="event_id cannot be blank")
+        unknown_metrics = set(event.metrics) - allowed_metrics
+        if unknown_metrics:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Unsupported telemetry metric: {sorted(unknown_metrics)[0]}",
+            )
+        metrics: Dict[str, float] = {}
+        for name, raw_value in event.metrics.items():
+            if isinstance(raw_value, bool) or not isinstance(raw_value, (int, float)):
+                raise HTTPException(status_code=422, detail="Metric values must be finite numbers")
+            value = float(raw_value)
+            if not math.isfinite(value):
+                raise HTTPException(status_code=422, detail="Metric values must be finite numbers")
+            metrics[name] = value
+        if event.asset_id is not None and db.get_asset(event.asset_id) is None:
+            raise HTTPException(status_code=404, detail="Linked asset not found")
+
+        occurred_at = event.occurred_at or datetime.now(timezone.utc)
+        if occurred_at.tzinfo is None:
+            occurred_at = occurred_at.replace(tzinfo=timezone.utc)
+        else:
+            occurred_at = occurred_at.astimezone(timezone.utc)
+        normalized_events.append(
+            {
+                "source": source,
+                "event_id": event_id,
+                "event_type": event_type,
+                "asset_id": event.asset_id,
+                "occurred_at": occurred_at.isoformat(),
+                "metrics": metrics,
+            }
+        )
+
+    results = []
+    new_incidents = []
+    accepted = 0
+    duplicates = 0
+    for event in normalized_events:
+        record_id, created = db.add_telemetry_event(
+            source=event["source"],
+            external_id=event["event_id"],
+            event_type=event["event_type"],
+            asset_id=event["asset_id"],
+            occurred_at=event["occurred_at"],
+            metrics=event["metrics"],
+        )
+        if created:
+            accepted += 1
+            rule_result = await asyncio.to_thread(
+                db.evaluate_detection_rules,
+                event["metrics"],
+                asset_id=event["asset_id"],
+                scope_to_asset=True,
+            )
+            db.add_audit(
+                "telemetry_event_ingested",
+                {
+                    "event_record_id": record_id,
+                    "source": event["source"],
+                    "event_type": event["event_type"],
+                    "asset_id": event["asset_id"],
+                    "new_incidents": len(rule_result["new_incidents"]),
+                },
+            )
+            for alert in rule_result["new_incidents"]:
+                new_incidents.append(alert)
+                await live_connections.broadcast(
+                    {
+                        "type": "detection_rule_alert",
+                        "rule_id": alert["rule_id"],
+                        "incident_id": alert["incident_id"],
+                        "name": alert["name"],
+                        "severity": alert["severity"],
+                    }
+                )
+        else:
+            duplicates += 1
+            rule_result = {
+                "evaluated": 0,
+                "matches": [],
+                "new_incidents": [],
+                "cleared": [],
+            }
+        results.append(
+            {
+                "id": record_id,
+                "source": event["source"],
+                "event_type": event["event_type"],
+                "duplicate": not created,
+                "rule_result": rule_result,
+            }
+        )
+
+    db.add_audit(
+        "telemetry_batch_ingested",
+        {"received": len(normalized_events), "accepted": accepted, "duplicates": duplicates},
+    )
+    return {
+        "received": len(normalized_events),
+        "accepted": accepted,
+        "duplicates": duplicates,
+        "new_incidents": new_incidents,
+        "events": results,
+    }
 
 
 @app.get("/api/assets")

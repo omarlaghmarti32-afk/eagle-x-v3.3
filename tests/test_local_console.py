@@ -197,3 +197,126 @@ def test_local_detection_rules_create_evaluate_and_open_one_incident_per_breach(
     resumed = client.post("/api/detection-rules/evaluate", headers=AUTH, json={})
     assert len(resumed.json()["new_incidents"]) == 1
     assert len(db.list_incidents()) == 3
+
+
+def test_telemetry_ingestion_is_authenticated_and_idempotent(monkeypatch, tmp_path):
+    db = use_test_db(monkeypatch, tmp_path)
+    assert client.get("/api/telemetry/events").status_code in (401, 403)
+    assert client.post("/api/telemetry/events", json={"events": []}).status_code in (401, 403)
+
+    asset = client.post(
+        "/api/assets", headers=AUTH, json={"name": "sensor-node", "asset_type": "server"}
+    ).json()["asset"]
+    rule = client.post(
+        "/api/detection-rules",
+        headers=AUTH,
+        json={
+            "name": "Incoming CPU spike",
+            "metric": "cpu_percent",
+            "operator": "gte",
+            "threshold": 80,
+            "severity": "critical",
+            "asset_id": asset["id"],
+        },
+    )
+    assert rule.status_code == 201
+
+    payload = {
+        "events": [
+            {
+                "source": "local-agent",
+                "event_id": "evt-001",
+                "event_type": "host.metrics",
+                "asset_id": asset["id"],
+                "metrics": {"cpu_percent": 92, "mem_percent": 74},
+            }
+        ]
+    }
+    first = client.post("/api/telemetry/events", headers=AUTH, json=payload)
+    assert first.status_code == 202
+    body = first.json()
+    assert (body["received"], body["accepted"], body["duplicates"]) == (1, 1, 0)
+    assert len(body["new_incidents"]) == 1
+    incident = db.list_incidents()[0]
+    assert incident["asset_id"] == asset["id"]
+    assert incident["severity"] == "critical"
+    stored = client.get("/api/telemetry/events", headers=AUTH).json()["events"]
+    assert stored[0]["source"] == "local-agent"
+    assert stored[0]["metrics"] == {"cpu_percent": 92.0, "mem_percent": 74.0}
+
+    retry = client.post("/api/telemetry/events", headers=AUTH, json=payload)
+    assert retry.status_code == 202
+    assert retry.json()["accepted"] == 0
+    assert retry.json()["duplicates"] == 1
+    assert retry.json()["new_incidents"] == []
+    assert len(db.list_telemetry_events()) == 1
+    assert len(db.list_incidents()) == 1
+
+
+def test_telemetry_rules_are_scoped_to_event_asset(monkeypatch, tmp_path):
+    db = use_test_db(monkeypatch, tmp_path)
+    assets = [
+        client.post("/api/assets", headers=AUTH, json={"name": name}).json()["asset"]
+        for name in ("asset-a", "asset-b")
+    ]
+    for index, asset in enumerate(assets):
+        response = client.post(
+            "/api/detection-rules",
+            headers=AUTH,
+            json={
+                "name": f"CPU rule {index}",
+                "metric": "cpu_percent",
+                "operator": "gt",
+                "threshold": 50,
+                "asset_id": asset["id"],
+            },
+        )
+        assert response.status_code == 201
+
+    ingested = client.post(
+        "/api/telemetry/events",
+        headers=AUTH,
+        json={
+            "events": [
+                {
+                    "source": "agent-a",
+                    "event_type": "host.metrics",
+                    "asset_id": assets[0]["id"],
+                    "metrics": {"cpu_percent": 90},
+                }
+            ]
+        },
+    )
+    assert ingested.status_code == 202
+    assert len(ingested.json()["new_incidents"]) == 1
+    assert ingested.json()["new_incidents"][0]["asset_id"] == assets[0]["id"]
+    assert len(db.list_incidents()) == 1
+
+
+def test_telemetry_ingestion_rejects_unknown_metrics_and_assets(monkeypatch, tmp_path):
+    db = use_test_db(monkeypatch, tmp_path)
+    unknown_metric = client.post(
+        "/api/telemetry/events",
+        headers=AUTH,
+        json={"events": [{"source": "agent", "event_type": "sample", "metrics": {"password": 1}}]},
+    )
+    assert unknown_metric.status_code == 422
+
+    non_finite = client.post(
+        "/api/telemetry/events",
+        content='{"events":[{"source":"agent","event_type":"sample","metrics":{"cpu_percent":NaN}}]}',
+        headers={**AUTH, "Content-Type": "application/json"},
+    )
+    assert non_finite.status_code == 422
+
+    unknown_asset = client.post(
+        "/api/telemetry/events",
+        headers=AUTH,
+        json={
+            "events": [
+                {"source": "agent", "event_type": "sample", "asset_id": 999, "metrics": {"cpu_percent": 5}}
+            ]
+        },
+    )
+    assert unknown_asset.status_code == 404
+    assert db.list_telemetry_events() == []

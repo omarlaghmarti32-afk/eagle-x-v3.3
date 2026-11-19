@@ -56,6 +56,7 @@ See [SECURITY.md](SECURITY.md) for reporting and operator checklist.
 | GET/POST | `/api/detection-rules` | Bearer (always required; local rules) |
 | PATCH | `/api/detection-rules/{id}` | Bearer (always required; enable/disable a rule) |
 | POST | `/api/detection-rules/evaluate` | Bearer (always required; evaluate one local sample) |
+| GET/POST | `/api/telemetry/events` | Bearer (always required; local event store and rule evaluation) |
 | POST | `/api/detect` | Bearer |
 | POST | `/api/heal` | Bearer |
 | GET | `/api/blocklist` | Bearer |
@@ -86,6 +87,25 @@ crossing creates one incident for that breach episode, and a clear-then-rebreach
 starts a new incident. The dashboard can also evaluate a fresh local sample on
 demand. Rule definitions, state transitions, incidents, and their audit events
 stay in the same SQLite database; no SaaS or external integration is involved.
+
+Local telemetry producers can send up to 100 events per request to
+`POST /api/telemetry/events`. Every event supplies a `source`, `event_type`, and
+one or more numeric metrics from the same supported metric list above; `asset_id`,
+`event_id`, and `occurred_at` are optional. Events are stored in SQLite and evaluated
+against global rules and rules linked to that asset. Repeating the same `source` +
+`event_id` is idempotent, so a network retry does not create a second event or
+incident. `GET /api/telemetry/events` returns up to 200 most recent stored events.
+Both endpoints require the EAGLE-X bearer token, and event data is not sent to an
+external service.
+
+Example (after creating asset ID `1` and a matching CPU rule):
+
+```bash
+curl -X POST http://127.0.0.1:8080/api/telemetry/events \
+  -H "Authorization: Bearer $EAGLE_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"events":[{"source":"local-agent-01","event_id":"evt-0001","event_type":"host.metrics","asset_id":1,"metrics":{"cpu_percent":93,"mem_percent":78}}]}'
+```
 
 ## Optional GitHub Security Command Center
 
