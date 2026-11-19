@@ -2,7 +2,7 @@ import io
 import json
 import urllib.error
 
-from core.github_command_center import GitHubCommandCenter, _api_error_code
+from core.github_command_center import GitHubCommandCenter, _api_error_code, get_github_overview
 
 
 def _api_result(data, status=200):
@@ -153,3 +153,26 @@ def test_http_error_codes_are_classified_safely():
     assert _api_error_code(_api_error(401)) == "authentication_required"
     assert _api_error_code(_api_error(403, "permission_required")) == "permission_required"
     assert _api_error_code(_api_error(403, "rate_limited")) == "rate_limited"
+
+
+def test_github_integration_is_off_by_default_without_outbound_requests(monkeypatch):
+    monkeypatch.delenv("EAGLE_GITHUB_ENABLED", raising=False)
+
+    def reject_request(*args, **kwargs):
+        raise AssertionError("GitHub must not be contacted when the integration is disabled")
+
+    monkeypatch.setattr("urllib.request.urlopen", reject_request)
+    overview = get_github_overview()
+
+    assert overview["enabled"] is False
+    assert overview["error"] == "integration_disabled"
+    assert "دون إرسال طلبات" in overview["priorities"][0]["reason"]
+
+
+def test_github_integration_can_be_explicitly_enabled(monkeypatch):
+    monkeypatch.setenv("EAGLE_GITHUB_ENABLED", "1")
+    monkeypatch.setenv("EAGLE_GITHUB_CACHE_SECONDS", "0")
+    expected = {"enabled": True, "connected": True}
+    monkeypatch.setattr(GitHubCommandCenter, "get_overview", lambda self: expected)
+
+    assert get_github_overview() == expected

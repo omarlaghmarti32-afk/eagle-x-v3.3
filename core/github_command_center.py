@@ -408,8 +408,43 @@ class GitHubCommandCenter:
         }
 
 
+def github_integration_enabled() -> bool:
+    """GitHub is opt-in; local EAGLE-X features work without this integration."""
+    return os.environ.get("EAGLE_GITHUB_ENABLED", "0").strip().lower() in {
+        "1", "true", "yes", "on"
+    }
+
+
 def get_github_overview() -> Dict[str, Any]:
-    """Convenience entry point for the FastAPI route."""
+    """Convenience entry point; never contacts GitHub unless explicitly enabled."""
+    if not github_integration_enabled():
+        return {
+            "enabled": False,
+            "connected": False,
+            "checked_at": datetime.now(timezone.utc).isoformat(),
+            "error": "integration_disabled",
+            "summary": {
+                "failed_workflows": None,
+                "failed_deployments": None,
+                "open_vulnerabilities": None,
+            },
+            "sections": {
+                "workflows": {"status": "unknown", "runs": []},
+                "deployments": {"status": "unknown", "items": []},
+                "security": {
+                    "status": "unknown",
+                    "dependabot": "unavailable",
+                    "code_scanning": "unavailable",
+                    "alerts": [],
+                },
+            },
+            "priorities": [{
+                "priority": "info",
+                "title": "تكامل GitHub اختياري وغير مفعّل",
+                "reason": "تعمل وظائف EAGLE-X المحلية دون إرسال طلبات إلى GitHub.",
+                "action": "لتفعيل هذا التكامل اختياريًا، اضبط EAGLE_GITHUB_ENABLED=1 على الخادم.",
+            }],
+        }
     try:
         service = GitHubCommandCenter()
         token_fingerprint = hashlib.sha256(service.token.encode("utf-8")).hexdigest()

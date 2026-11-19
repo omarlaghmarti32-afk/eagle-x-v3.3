@@ -19,7 +19,8 @@ FastAPI API (api_server.py)
    +--> SelfHealingEngine ---> policy-controlled defensive simulation
    +--> ThreatDB          ---> SQLite threats, metrics, blocklist, audit
 
-Optional health-monitor sidecar -> /api/health/deep -> safe webhook
+Optional GitHub read-only view (off by default; enabled only by operator)
+Optional health-monitor sidecar -> /api/health/deep -> optional safe webhook
 ```
 
 ## Runtime flow
@@ -34,7 +35,8 @@ Optional health-monitor sidecar -> /api/health/deep -> safe webhook
 
 - **Client to API:** bearer token for REST mutations and an explicit first WebSocket message. TLS must terminate at Caddy or the deployment provider.
 - **API to host:** psutil reads local telemetry. Optional packet capture requires explicit operator enablement and elevated host capabilities; it is off in the default Compose path.
-- **API to external webhook:** health monitor rejects localhost, private, link-local, metadata, and internal targets by default.
+- **Default network behavior:** local host monitoring, detection, dashboard API, SQLite persistence, and audit work without an external SaaS account. GitHub access is disabled unless `EAGLE_GITHUB_ENABLED=1`; the health webhook is unused unless explicitly configured.
+- **API to external webhook:** when configured, the health monitor rejects localhost, private, link-local, metadata, and internal targets by default.
 - **Persistence:** SQLite and audit logs are mounted volumes. Back them up and restrict filesystem permissions.
 
 ## Scaling notes

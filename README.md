@@ -49,7 +49,7 @@ See [SECURITY.md](SECURITY.md) for reporting and operator checklist.
 | GET | `/api/health` | public |
 | GET | `/api/ready` | public |
 | GET | `/api/status` | optional (`PROTECT_READ_APIS`) |
-| GET | `/api/github/overview` | Bearer (`EAGLE_API_TOKEN`, always required) |
+| GET | `/api/github/overview` | Bearer (`EAGLE_API_TOKEN`, always required; GitHub integration is opt-in) |
 | POST | `/api/detect` | Bearer |
 | POST | `/api/heal` | Bearer |
 | GET | `/api/blocklist` | Bearer |
@@ -59,34 +59,40 @@ The dashboard uses `/ws` for authenticated live samples and threat events, with
 short-interval REST refresh as a fallback. Send `{"token":"<EAGLE_API_TOKEN>"}`
 as the first WebSocket message; use `wss://` behind TLS.
 
-## GitHub Security Command Center
+## Local-first core
 
-The Arabic dashboard includes a read-only GitHub view for repository metadata,
-recent Actions runs, deployment statuses, Dependabot alerts, and code-scanning
-alerts. It ranks failures and findings and gives a short Arabic explanation and
-next action. The API endpoint is `GET /api/github/overview` and always requires
-the EAGLE-X Bearer token, including when read APIs are otherwise public.
+EAGLE-X's core runs on its own API process and stores threats, metrics, blocklist,
+and audit events in local SQLite. Host monitoring, detection, the dashboard, and
+the simulated response do not require a GitHub account or another SaaS integration.
+Optional integrations are kept outside that core; the health webhook is inactive
+unless explicitly configured.
 
-Set `EAGLE_GITHUB_REPO=owner/repository` on the server. Public repository and
-workflow/deployment data can be read without a GitHub token. To see vulnerability
-alerts, create a fine-grained GitHub token with read-only access to **Actions**,
-**Deployments**, **Dependabot alerts**, and **Code scanning alerts**, then set it
-as `EAGLE_GITHUB_TOKEN` in the server environment or local `.env` file. Docker
-Compose passes it only to the API container. Never put this GitHub token in the
-browser or commit it to the repository. When alerts are inaccessible, the panel
-marks vulnerability coverage as incomplete instead of claiming there are zero
-vulnerabilities. Re-deploy or restart the service after changing environment
-variables.
+## Optional GitHub Security Command Center
+
+The Arabic dashboard can show read-only GitHub repository metadata, Actions runs,
+deployment statuses, Dependabot alerts, and code-scanning alerts. This integration
+is **disabled by default** and makes no requests to GitHub unless explicitly
+enabled. To opt in, set `EAGLE_GITHUB_ENABLED=1` and `EAGLE_GITHUB_REPO=owner/repository`
+on the server, then restart it. `GET /api/github/overview` always requires the
+EAGLE-X Bearer token, even when read APIs are otherwise public.
+
+Public repository and workflow/deployment data can be read without a GitHub
+token. To see vulnerability alerts, create a fine-grained GitHub token with
+read-only access to **Actions**, **Deployments**, **Dependabot alerts**, and
+**Code scanning alerts**, then set it as `EAGLE_GITHUB_TOKEN` in the server
+environment or local `.env` file. Docker Compose passes it only to the API
+container. Never put this GitHub token in the browser or commit it to the
+repository. When alerts are inaccessible, the panel marks vulnerability coverage
+as incomplete instead of claiming there are zero vulnerabilities.
 
 The repository must also have Dependabot alerts and code scanning enabled under
 GitHub **Settings → Code security and analysis**; code scanning additionally
 needs an active scanning workflow or tool. If a feature is disabled, the panel
-identifies it instead of treating it as a clean scan.
+identifies it instead of treating it as a clean scan. Leave `EAGLE_GITHUB_ENABLED=0`
+to keep the deployment fully independent of GitHub.
 
-For a local run, copy `.env.example` to `.env`, add the optional GitHub token,
-and run `docker compose up -d --build`. In the dashboard, enter the
-`EAGLE_API_TOKEN` in its existing token field; the GitHub token is never entered
-there.
+In the dashboard, enter only the `EAGLE_API_TOKEN` in its existing token field;
+the optional GitHub token is never entered there.
 
 ## Decentralized deployment templates
 

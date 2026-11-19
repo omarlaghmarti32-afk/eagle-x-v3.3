@@ -15,6 +15,8 @@ curl -fsS http://127.0.0.1/api/ready
 
 The API listens behind Caddy. Keep `EAGLE_CORS_ORIGINS` restricted to the dashboard origin and use `EAGLE_PROTECT_READ_APIS=1` for an internet-facing service.
 
+The core runs locally with host monitoring, detection, SQLite storage, and audit logging; it does not require a GitHub account or other SaaS integration. GitHub access is off by default. To opt in, set `EAGLE_GITHUB_ENABLED=1` on the server; any GitHub token remains server-side. The optional health webhook is also inactive unless configured.
+
 ## 2. Akash Network (backend)
 
 `deploy.yml` is an SDL template. Before submitting it:

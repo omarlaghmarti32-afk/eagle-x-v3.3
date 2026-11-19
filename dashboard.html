@@ -52,8 +52,8 @@
         <section class="bg-card p-6 rounded-2xl space-y-5" aria-labelledby="github-heading">
             <header class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
                 <div>
-                    <h2 id="github-heading" class="text-2xl font-black seal-gold">مركز القيادة الأمني — GitHub</h2>
-                    <p id="github-repo-meta" class="text-sm text-gray-400 mt-1">صحة المستودع والتشغيلات والنشر والتنبيهات الأمنية</p>
+                    <h2 id="github-heading" class="text-2xl font-black seal-gold">تكامل اختياري — GitHub</h2>
+                    <p id="github-repo-meta" class="text-sm text-gray-400 mt-1">النواة المحلية لا تحتاج إلى GitHub؛ هذا العرض الخارجي معطل افتراضيًا</p>
                 </div>
                 <div class="flex items-center gap-3">
                     <span id="github-overall-status" class="text-sm font-bold text-gray-300" aria-live="polite">أدخل رمز EAGLE-X لعرض البيانات</span>
@@ -159,7 +159,7 @@
             failed: 'توجد إخفاقات', running: 'جارٍ التنفيذ', healthy: 'سليم',
             alerts: 'تنبيهات مفتوحة', clear: 'لا تنبيهات مفتوحة', partial: 'بيانات جزئية',
             critical: 'حرج', high: 'عالٍ', medium: 'متوسط', low: 'منخفض',
-            unknown: 'غير معروف', unavailable: 'غير متاح', authentication_required: 'رمز GitHub مطلوب',
+            unknown: 'غير معروف', unavailable: 'غير متاح', integration_disabled: 'معطل — الوضع المحلي', authentication_required: 'رمز GitHub مطلوب',
             permission_required: 'صلاحية GitHub ناقصة', feature_disabled: 'الميزة غير مفعّلة', rate_limited: 'حد الطلبات مؤقتاً',
             not_enabled_or_permission_required: 'غير مفعّل أو الصلاحية ناقصة',
             github_unreachable: 'تعذر الاتصال بـ GitHub', github_api_error: 'خطأ من GitHub',
@@ -199,6 +199,18 @@
             } catch (e) { return escapeHtml(label); }
         }
         function renderGitHubOverview(data) {
+            if (data.error === 'integration_disabled') {
+                document.getElementById('github-repo-meta').textContent = 'تعمل المراقبة والسجلات المحلية دون اتصال بـ GitHub.';
+                document.getElementById('github-overall-status').innerHTML = githubStatusBadge('integration_disabled');
+                document.getElementById('github-workflow-count').textContent = '—';
+                document.getElementById('github-deployment-count').textContent = '—';
+                document.getElementById('github-vulnerability-count').textContent = '—';
+                document.getElementById('github-priorities').innerHTML = '<p class="text-sm text-gray-300">تكامل GitHub متوقف. لتفعيله اختياريًا اضبط <code>EAGLE_GITHUB_ENABLED=1</code> على الخادم ثم أعد تشغيله.</p>';
+                document.getElementById('github-workflows').innerHTML = '<p class="text-gray-400">غير مستخدم في الوضع المحلي</p>';
+                document.getElementById('github-deployments').innerHTML = '<p class="text-gray-400">غير مستخدم في الوضع المحلي</p>';
+                document.getElementById('github-vulnerabilities').innerHTML = '<p class="text-gray-400">بيانات التهديدات المحلية متاحة في سجل التهديدات أدناه.</p>';
+                return;
+            }
             const repo = data.repository || {};
             const sections = data.sections || {};
             const workflows = sections.workflows || {};
@@ -275,7 +287,9 @@
             document.getElementById('github-vulnerabilities').innerHTML = '<p class="text-gray-400">بانتظار البيانات</p>';
         }
 
+        let githubIntegrationEnabled = true;
         async function fetchGitHubOverview() {
+            if (!githubIntegrationEnabled) return;
             const token = document.getElementById('api-token').value.trim();
             const status = document.getElementById('github-overall-status');
             if (!token) {
@@ -293,12 +307,17 @@
                 }
                 if (!response.ok) throw new Error('github_api_unavailable');
                 const data = await response.json();
+                if (data.error === 'integration_disabled') {
+                    githubIntegrationEnabled = false;
+                    button.disabled = true;
+                    button.title = 'فعّل التكامل من إعدادات الخادم إذا رغبت';
+                }
                 renderGitHubOverview(data);
             } catch (error) {
                 status.textContent = 'تعذر تحديث بيانات GitHub';
                 document.getElementById('github-priorities').innerHTML = '<p class="text-red-300">تعذر الوصول إلى واجهة المركز. تحقق من اتصال الخادم ثم حاول مجدداً.</p>';
             } finally {
-                button.disabled = false;
+                button.disabled = !githubIntegrationEnabled;
                 button.textContent = 'تحديث';
             }
         }
