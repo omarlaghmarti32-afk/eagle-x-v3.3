@@ -17,9 +17,12 @@ FastAPI API (api_server.py)
    +--> NetworkMonitor    ---> psutil host feature vector
    +--> PQCManager        ---> approved-library mode or explicit simulation
    +--> SelfHealingEngine ---> policy-controlled defensive simulation
-   +--> ThreatDB          ---> SQLite threats, metrics, blocklist, audit
+   +--> Detection rules   ---> local metric thresholds, incident transitions
+   +--> ThreatDB          ---> SQLite threats, metrics, telemetry events, assets, rules, incidents, audit
+Local telemetry producers -> authenticated /api/telemetry/events -> validation -> rules -> SQLite
 
-Optional health-monitor sidecar -> /api/health/deep -> safe webhook
+Optional GitHub read-only view (off by default; enabled only by operator)
+Optional health-monitor sidecar -> /api/health/deep -> optional safe webhook
 ```
 
 ## Runtime flow
@@ -27,14 +30,23 @@ Optional health-monitor sidecar -> /api/health/deep -> safe webhook
 1. `NetworkMonitor` samples local host metrics; packet capture is disabled by default.
 2. The detector classifies the feature vector and returns an explainable result.
 3. Detected events are stored in SQLite with timestamp, source, severity, and sealed metadata.
-4. The API broadcasts non-sensitive sample summaries and threat events to authenticated WebSocket clients.
-5. Self-healing remains a simulation/policy layer. Any future real response must be separately reviewed, allow-listed, rate-limited, and auditable.
+   Operators can also maintain a local asset inventory and incident lifecycle in the same database;
+   incidents may reference known assets without launching a scan or contacting an external service.
+4. Enabled local detection rules compare sampled host metrics against operator-defined thresholds.
+   A transition into a breach creates one asset-linked incident and an audit event; repeated samples
+   do not create duplicates, while a clear-then-rebreach starts a new incident.
+5. The API broadcasts non-sensitive sample summaries and threat events to authenticated WebSocket clients.
+6. Self-healing remains a simulation/policy layer. Any future real response must be separately reviewed, allow-listed, rate-limited, and auditable.
+7. Local producers may submit batches of up to 100 metric events. The API validates known metric names, stores the event locally, evaluates only global rules and rules linked to that event's asset, and broadcasts newly created incidents.
 
 ## Trust boundaries
 
 - **Client to API:** bearer token for REST mutations and an explicit first WebSocket message. TLS must terminate at Caddy or the deployment provider.
+- **Telemetry producer to API:** the event-ingestion endpoint requires the same bearer token, limits batch size, rejects unknown/non-finite metrics, and deduplicates retried events by source plus event ID. Submitted events and rule outcomes remain in local SQLite; the endpoint does not forward them to a third party.
 - **API to host:** psutil reads local telemetry. Optional packet capture requires explicit operator enablement and elevated host capabilities; it is off in the default Compose path.
-- **API to external webhook:** health monitor rejects localhost, private, link-local, metadata, and internal targets by default.
+- **Default network behavior:** local host monitoring, AI and threshold detection, dashboard API, SQLite persistence, asset inventory, incident tracking, and audit work without an external SaaS account. The dashboard itself loads no CDN or third-party fonts. GitHub access is disabled unless `EAGLE_GITHUB_ENABLED=1`; the health webhook is unused unless explicitly configured.
+- **Sensitive local records:** asset and incident API routes always require the EAGLE-X bearer token, independently of the optional read-route protection setting.
+- **API to external webhook:** when configured, the health monitor rejects localhost, private, link-local, metadata, and internal targets by default.
 - **Persistence:** SQLite and audit logs are mounted volumes. Back them up and restrict filesystem permissions.
 
 ## Scaling notes

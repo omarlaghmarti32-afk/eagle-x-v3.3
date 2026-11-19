@@ -15,6 +15,8 @@ curl -fsS http://127.0.0.1/api/ready
 
 The API listens behind Caddy. Keep `EAGLE_CORS_ORIGINS` restricted to the dashboard origin and use `EAGLE_PROTECT_READ_APIS=1` for an internet-facing service.
 
+The core runs locally with host monitoring, detection, SQLite storage, and audit logging; it does not require a GitHub account or other SaaS integration. GitHub access is off by default. To opt in, set `EAGLE_GITHUB_ENABLED=1` on the server; any GitHub token remains server-side. The optional health webhook is also inactive unless configured.
+
 ## 2. Akash Network (backend)
 
 `deploy.yml` is an SDL template. Before submitting it:
@@ -29,13 +31,13 @@ The file is deliberately a template: provider selection, wallet signing, bids, a
 
 ## 3. Fleek/IPFS (frontend)
 
-`fleek.json` describes a static publish of the dashboard assets. The dashboard must reach the backend through a public HTTPS API origin or a reverse proxy. IPFS content is public by default; **never place an API token in HTML, JavaScript, build logs, or IPFS-published files**.
+`fleek.json` builds the landing page and dashboard into `dist/`. Set the Fleek build environment `EAGLE_API_ORIGIN` to the public HTTPS origin of the Eagle-X API; the manifest maps this to `API_ORIGIN`, and `scripts/build_static_site.py` embeds only that public origin in the dashboard. The dashboard requests the API and WebSocket from this origin. IPFS content is public by default; **never place an API token in HTML, JavaScript, build logs, or IPFS-published files**.
 
 Recommended flow:
 
 1. Create a Fleek site manually and store its site ID in the platform configuration.
-2. Configure the API origin as a public HTTPS URL with restricted CORS.
-3. Publish only the static frontend and verify that WebSocket upgrades use `wss://`.
+2. Configure `EAGLE_API_ORIGIN` as the public HTTPS API origin and restrict the backend's `EAGLE_CORS_ORIGINS` to the dashboard's gateway/custom domain.
+3. The build publishes `index.html` and `dashboard.html` from `dist/`; use the landing-page link or open `/dashboard.html` directly. Verify that WebSocket upgrades use `wss://`.
 4. Pin the resulting CID and record it in change management.
 
 ## 4. Spheron alternative

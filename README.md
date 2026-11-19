@@ -49,14 +49,90 @@ See [SECURITY.md](SECURITY.md) for reporting and operator checklist.
 | GET | `/api/health` | public |
 | GET | `/api/ready` | public |
 | GET | `/api/status` | optional (`PROTECT_READ_APIS`) |
+| GET | `/api/github/overview` | Bearer (`EAGLE_API_TOKEN`, always required; GitHub integration is opt-in) |
+| GET/POST | `/api/assets` | Bearer (always required; local inventory) |
+| GET/POST | `/api/incidents` | Bearer (always required; local incident log) |
+| PATCH | `/api/incidents/{id}` | Bearer (always required; local status update) |
+| GET/POST | `/api/detection-rules` | Bearer (always required; local rules) |
+| PATCH | `/api/detection-rules/{id}` | Bearer (always required; enable/disable a rule) |
+| POST | `/api/detection-rules/evaluate` | Bearer (always required; evaluate one local sample) |
+| GET/POST | `/api/telemetry/events` | Bearer (always required; local event store and rule evaluation) |
 | POST | `/api/detect` | Bearer |
 | POST | `/api/heal` | Bearer |
 | GET | `/api/blocklist` | Bearer |
 | WebSocket | `/ws` | token message first |
 
-The dashboard uses `/ws` for authenticated live samples and threat events, with
-short-interval REST refresh as a fallback. Send `{"token":"<EAGLE_API_TOKEN>"}`
-as the first WebSocket message; use `wss://` behind TLS.
+The Arabic dashboard is self-contained: its CSS and system-font stack are local,
+and it does not load a CDN or third-party web font. Its asset and incident views
+use the local API and SQLite database. Send `{"token":"<EAGLE_API_TOKEN>"}`
+as the first WebSocket message if using the optional live stream; use `wss://` behind TLS.
+
+## Local-first core
+
+EAGLE-X's core runs on its own API process and stores threats, metrics, blocklist,
+audit events, an operator-maintained asset inventory, and an incident log in local
+SQLite. The asset inventory is manually curated rather than discovered by scanning;
+incidents can be linked to known assets and moved through open, investigating,
+contained, and resolved states. Asset and incident endpoints always require the
+EAGLE-X API token. Host monitoring, detection, the dashboard, and the simulated
+response do not require a GitHub account or another SaaS integration. Optional
+integrations are kept outside that core; the health webhook is inactive unless
+explicitly configured.
+
+Detection rules can watch any local host metric (`cpu_percent`, `mem_percent`,
+network byte rates, process count, connection count, disk usage, or the entropy
+proxy) using a numeric comparison. Each rule can set incident severity and link
+to a local asset. The background monitor evaluates enabled rules; a threshold
+crossing creates one incident for that breach episode, and a clear-then-rebreach
+starts a new incident. The dashboard can also evaluate a fresh local sample on
+demand. Rule definitions, state transitions, incidents, and their audit events
+stay in the same SQLite database; no SaaS or external integration is involved.
+
+Local telemetry producers can send up to 100 events per request to
+`POST /api/telemetry/events`. Every event supplies a `source`, `event_type`, and
+one or more numeric metrics from the same supported metric list above; `asset_id`,
+`event_id`, and `occurred_at` are optional. Events are stored in SQLite and evaluated
+against global rules and rules linked to that asset. Repeating the same `source` +
+`event_id` is idempotent, so a network retry does not create a second event or
+incident. `GET /api/telemetry/events` returns up to 200 most recent stored events.
+Both endpoints require the EAGLE-X bearer token, and event data is not sent to an
+external service.
+
+Example (after creating asset ID `1` and a matching CPU rule):
+
+```bash
+curl -X POST http://127.0.0.1:8080/api/telemetry/events \
+  -H "Authorization: Bearer $EAGLE_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"events":[{"source":"local-agent-01","event_id":"evt-0001","event_type":"host.metrics","asset_id":1,"metrics":{"cpu_percent":93,"mem_percent":78}}]}'
+```
+
+## Optional GitHub Security Command Center
+
+The Arabic dashboard can show read-only GitHub repository metadata, Actions runs,
+deployment statuses, Dependabot alerts, and code-scanning alerts. This integration
+is **disabled by default** and makes no requests to GitHub unless explicitly
+enabled. To opt in, set `EAGLE_GITHUB_ENABLED=1` and `EAGLE_GITHUB_REPO=owner/repository`
+on the server, then restart it. `GET /api/github/overview` always requires the
+EAGLE-X Bearer token, even when read APIs are otherwise public.
+
+Public repository and workflow/deployment data can be read without a GitHub
+token. To see vulnerability alerts, create a fine-grained GitHub token with
+read-only access to **Actions**, **Deployments**, **Dependabot alerts**, and
+**Code scanning alerts**, then set it as `EAGLE_GITHUB_TOKEN` in the server
+environment or local `.env` file. Docker Compose passes it only to the API
+container. Never put this GitHub token in the browser or commit it to the
+repository. When alerts are inaccessible, the panel marks vulnerability coverage
+as incomplete instead of claiming there are zero vulnerabilities.
+
+The repository must also have Dependabot alerts and code scanning enabled under
+GitHub **Settings → Code security and analysis**; code scanning additionally
+needs an active scanning workflow or tool. If a feature is disabled, the panel
+identifies it instead of treating it as a clean scan. Leave `EAGLE_GITHUB_ENABLED=0`
+to keep the deployment fully independent of GitHub.
+
+In the dashboard, enter only the `EAGLE_API_TOKEN` in its existing token field;
+the optional GitHub token is never entered there.
 
 ## Decentralized deployment templates
 

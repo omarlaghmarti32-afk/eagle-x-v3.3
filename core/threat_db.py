@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import sqlite3
 import threading
 from contextlib import contextmanager
@@ -24,6 +25,7 @@ class ThreatDB:
     def _conn(self):
         conn = sqlite3.connect(self.path, check_same_thread=False)
         conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA foreign_keys = ON")
         try:
             yield conn
             conn.commit()
@@ -72,6 +74,66 @@ class ThreatDB:
                     cpu REAL,
                     mem REAL
                 );
+
+                CREATE TABLE IF NOT EXISTS telemetry_events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    source TEXT NOT NULL,
+                    external_id TEXT,
+                    event_type TEXT NOT NULL,
+                    asset_id INTEGER REFERENCES assets(id) ON DELETE SET NULL,
+                    occurred_at TEXT NOT NULL,
+                    received_at TEXT NOT NULL,
+                    metrics TEXT NOT NULL,
+                    UNIQUE(source, external_id)
+                );
+                CREATE INDEX IF NOT EXISTS idx_telemetry_events_received
+                    ON telemetry_events(received_at DESC);
+
+                CREATE TABLE IF NOT EXISTS assets (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL UNIQUE,
+                    asset_type TEXT NOT NULL,
+                    address TEXT,
+                    criticality TEXT NOT NULL DEFAULT 'medium',
+                    notes TEXT NOT NULL DEFAULT '',
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS detection_rules (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL UNIQUE,
+                    metric TEXT NOT NULL,
+                    operator TEXT NOT NULL CHECK(operator IN ('gt', 'gte', 'lt', 'lte', 'eq')),
+                    threshold REAL NOT NULL,
+                    severity TEXT NOT NULL CHECK(severity IN ('low', 'medium', 'high', 'critical')),
+                    enabled INTEGER NOT NULL DEFAULT 1 CHECK(enabled IN (0, 1)),
+                    asset_id INTEGER REFERENCES assets(id) ON DELETE SET NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_detection_rules_enabled ON detection_rules(enabled);
+
+                CREATE TABLE IF NOT EXISTS detection_rule_state (
+                    rule_id INTEGER PRIMARY KEY REFERENCES detection_rules(id) ON DELETE CASCADE,
+                    active_match INTEGER NOT NULL DEFAULT 0 CHECK(active_match IN (0, 1)),
+                    active_incident_id INTEGER REFERENCES incidents(id) ON DELETE SET NULL,
+                    last_value REAL,
+                    last_evaluated_at TEXT
+                );
+
+                CREATE TABLE IF NOT EXISTS incidents (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    title TEXT NOT NULL,
+                    description TEXT NOT NULL DEFAULT '',
+                    severity TEXT NOT NULL DEFAULT 'medium',
+                    status TEXT NOT NULL DEFAULT 'open',
+                    source TEXT NOT NULL DEFAULT 'manual',
+                    asset_id INTEGER REFERENCES assets(id) ON DELETE SET NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_incidents_status ON incidents(status);
                 """
             )
 
@@ -161,3 +223,356 @@ class ThreatDB:
                 "INSERT INTO metrics (timestamp, packets_scanned, threats_detected, cpu, mem) VALUES (?, ?, ?, ?, ?)",
                 (ts, packets, threats, cpu, mem),
             )
+
+    def add_telemetry_event(
+        self,
+        source: str,
+        external_id: Optional[str],
+        event_type: str,
+        asset_id: Optional[int],
+        occurred_at: str,
+        metrics: Dict[str, float],
+    ) -> tuple[int, bool]:
+        """Persist a local event; source-scoped external IDs make retries idempotent."""
+        received_at = datetime.now(timezone.utc).isoformat()
+        with self._lock, self._conn() as conn:
+            cur = conn.execute(
+                """INSERT INTO telemetry_events
+                   (source, external_id, event_type, asset_id, occurred_at, received_at, metrics)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(source, external_id) DO NOTHING""",
+                (
+                    source,
+                    external_id,
+                    event_type,
+                    asset_id,
+                    occurred_at,
+                    received_at,
+                    json.dumps(metrics, sort_keys=True, allow_nan=False),
+                ),
+            )
+            if cur.rowcount:
+                return int(cur.lastrowid), True
+            row = conn.execute(
+                "SELECT id FROM telemetry_events WHERE source = ? AND external_id = ?",
+                (source, external_id),
+            ).fetchone()
+            if row is None:
+                raise RuntimeError("Telemetry event insert was ignored without an existing event")
+            return int(row["id"]), False
+
+    def list_telemetry_events(self, limit: int = 50) -> List[Dict[str, Any]]:
+        limit = max(1, min(int(limit), 200))
+        with self._lock, self._conn() as conn:
+            rows = conn.execute(
+                """SELECT e.*, a.name AS asset_name
+                   FROM telemetry_events AS e
+                   LEFT JOIN assets AS a ON a.id = e.asset_id
+                   ORDER BY e.id DESC LIMIT ?""",
+                (limit,),
+            ).fetchall()
+            events = []
+            for row in rows:
+                event = dict(row)
+                event["metrics"] = json.loads(event["metrics"])
+                events.append(event)
+            return events
+
+    def add_asset(
+        self,
+        name: str,
+        asset_type: str,
+        address: Optional[str] = None,
+        criticality: str = "medium",
+        notes: str = "",
+    ) -> int:
+        ts = datetime.now(timezone.utc).isoformat()
+        with self._lock, self._conn() as conn:
+            cur = conn.execute(
+                """INSERT INTO assets
+                   (name, asset_type, address, criticality, notes, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (name, asset_type, address, criticality, notes, ts, ts),
+            )
+            return int(cur.lastrowid)
+
+    def list_assets(self, limit: int = 200) -> List[Dict[str, Any]]:
+        with self._lock, self._conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM assets ORDER BY name COLLATE NOCASE LIMIT ?", (limit,)
+            ).fetchall()
+            return [dict(row) for row in rows]
+
+    def get_asset(self, asset_id: int) -> Optional[Dict[str, Any]]:
+        with self._lock, self._conn() as conn:
+            row = conn.execute("SELECT * FROM assets WHERE id = ?", (asset_id,)).fetchone()
+            return dict(row) if row else None
+
+    def add_incident(
+        self,
+        title: str,
+        description: str = "",
+        severity: str = "medium",
+        source: str = "manual",
+        asset_id: Optional[int] = None,
+    ) -> int:
+        ts = datetime.now(timezone.utc).isoformat()
+        with self._lock, self._conn() as conn:
+            cur = conn.execute(
+                """INSERT INTO incidents
+                   (title, description, severity, status, source, asset_id, created_at, updated_at)
+                   VALUES (?, ?, ?, 'open', ?, ?, ?, ?)""",
+                (title, description, severity, source, asset_id, ts, ts),
+            )
+            return int(cur.lastrowid)
+
+    def list_incidents(self, limit: int = 100) -> List[Dict[str, Any]]:
+        with self._lock, self._conn() as conn:
+            rows = conn.execute(
+                """SELECT i.*, a.name AS asset_name
+                   FROM incidents AS i LEFT JOIN assets AS a ON a.id = i.asset_id
+                   ORDER BY i.id DESC LIMIT ?""",
+                (limit,),
+            ).fetchall()
+            return [dict(row) for row in rows]
+
+    def update_incident_status(self, incident_id: int, status: str) -> bool:
+        ts = datetime.now(timezone.utc).isoformat()
+        with self._lock, self._conn() as conn:
+            cur = conn.execute(
+                "UPDATE incidents SET status = ?, updated_at = ? WHERE id = ?",
+                (status, ts, incident_id),
+            )
+            return cur.rowcount > 0
+
+    def add_detection_rule(
+        self,
+        name: str,
+        metric: str,
+        operator: str,
+        threshold: float,
+        severity: str = "medium",
+        enabled: bool = True,
+        asset_id: Optional[int] = None,
+    ) -> int:
+        ts = datetime.now(timezone.utc).isoformat()
+        with self._lock, self._conn() as conn:
+            cur = conn.execute(
+                """INSERT INTO detection_rules
+                   (name, metric, operator, threshold, severity, enabled, asset_id, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (name, metric, operator, threshold, severity, int(enabled), asset_id, ts, ts),
+            )
+            return int(cur.lastrowid)
+
+    def list_detection_rules(self) -> List[Dict[str, Any]]:
+        with self._lock, self._conn() as conn:
+            rows = conn.execute(
+                """SELECT r.*, a.name AS asset_name,
+                          COALESCE(s.active_match, 0) AS active_match,
+                          s.active_incident_id, s.last_value, s.last_evaluated_at
+                   FROM detection_rules AS r
+                   LEFT JOIN assets AS a ON a.id = r.asset_id
+                   LEFT JOIN detection_rule_state AS s ON s.rule_id = r.id
+                   ORDER BY r.id DESC"""
+            ).fetchall()
+            rules = [dict(row) for row in rows]
+            for rule in rules:
+                rule["enabled"] = bool(rule["enabled"])
+                rule["active_match"] = bool(rule["active_match"])
+            return rules
+
+    def get_detection_rule(self, rule_id: int) -> Optional[Dict[str, Any]]:
+        with self._lock, self._conn() as conn:
+            row = conn.execute(
+                """SELECT r.*, a.name AS asset_name,
+                          COALESCE(s.active_match, 0) AS active_match,
+                          s.active_incident_id, s.last_value, s.last_evaluated_at
+                   FROM detection_rules AS r
+                   LEFT JOIN assets AS a ON a.id = r.asset_id
+                   LEFT JOIN detection_rule_state AS s ON s.rule_id = r.id
+                   WHERE r.id = ?""",
+                (rule_id,),
+            ).fetchone()
+            if row is None:
+                return None
+            rule = dict(row)
+            rule["enabled"] = bool(rule["enabled"])
+            rule["active_match"] = bool(rule["active_match"])
+            return rule
+
+    def set_detection_rule_enabled(self, rule_id: int, enabled: bool) -> bool:
+        ts = datetime.now(timezone.utc).isoformat()
+        with self._lock, self._conn() as conn:
+            rule = conn.execute("SELECT name FROM detection_rules WHERE id = ?", (rule_id,)).fetchone()
+            if rule is None:
+                return False
+            cur = conn.execute(
+                "UPDATE detection_rules SET enabled = ?, updated_at = ? WHERE id = ?",
+                (int(enabled), ts, rule_id),
+            )
+            state = conn.execute(
+                "SELECT active_match FROM detection_rule_state WHERE rule_id = ?", (rule_id,)
+            ).fetchone()
+            if not enabled and state and state["active_match"]:
+                conn.execute(
+                    """UPDATE detection_rule_state
+                       SET active_match = 0, active_incident_id = NULL, last_evaluated_at = ?
+                       WHERE rule_id = ?""",
+                    (ts, rule_id),
+                )
+                details = {"rule_id": rule_id, "name": rule["name"], "reason": "disabled"}
+                conn.execute(
+                    "INSERT INTO audit (timestamp, event, details, signature) VALUES (?, ?, ?, '')",
+                    (ts, "detection_rule_cleared", json.dumps(details)),
+                )
+            return cur.rowcount > 0
+
+    def evaluate_detection_rules(
+        self,
+        metrics: Dict[str, Any],
+        *,
+        asset_id: Optional[int] = None,
+        scope_to_asset: bool = False,
+    ) -> Dict[str, Any]:
+        """Evaluate local telemetry; create one incident per breach episode."""
+        compare = {
+            "gt": lambda value, threshold: value > threshold,
+            "gte": lambda value, threshold: value >= threshold,
+            "lt": lambda value, threshold: value < threshold,
+            "lte": lambda value, threshold: value <= threshold,
+            "eq": lambda value, threshold: value == threshold,
+        }
+        evaluated = 0
+        matches: List[Dict[str, Any]] = []
+        new_incidents: List[Dict[str, Any]] = []
+        cleared: List[Dict[str, Any]] = []
+        ts = datetime.now(timezone.utc).isoformat()
+
+        with self._lock, self._conn() as conn:
+            rules = conn.execute("SELECT * FROM detection_rules ORDER BY id").fetchall()
+            if scope_to_asset:
+                rules = [
+                    rule for rule in rules
+                    if rule["asset_id"] is None or rule["asset_id"] == asset_id
+                ]
+            for rule in rules:
+                state = conn.execute(
+                    "SELECT * FROM detection_rule_state WHERE rule_id = ?", (rule["id"],)
+                ).fetchone()
+                was_active = bool(state and state["active_match"])
+
+                if not rule["enabled"]:
+                    if was_active:
+                        conn.execute(
+                            """UPDATE detection_rule_state
+                               SET active_match = 0, active_incident_id = NULL, last_evaluated_at = ?
+                               WHERE rule_id = ?""",
+                            (ts, rule["id"]),
+                        )
+                        details = {"rule_id": rule["id"], "name": rule["name"], "reason": "disabled"}
+                        conn.execute(
+                            "INSERT INTO audit (timestamp, event, details, signature) VALUES (?, ?, ?, '')",
+                            (ts, "detection_rule_cleared", json.dumps(details)),
+                        )
+                        cleared.append(details)
+                    continue
+
+                raw_value = metrics.get(rule["metric"])
+                if raw_value is None:
+                    continue
+                try:
+                    value = float(raw_value)
+                    threshold = float(rule["threshold"])
+                except (TypeError, ValueError, OverflowError):
+                    continue
+                if not math.isfinite(value) or not math.isfinite(threshold):
+                    continue
+
+                evaluated += 1
+                matched = compare[rule["operator"]](value, threshold)
+                if matched:
+                    incident_id = state["active_incident_id"] if was_active else None
+                    created = not was_active
+                    if created:
+                        description = (
+                            f"Detection rule #{rule['id']} matched: {rule['metric']} "
+                            f"{rule['operator']} {threshold:g}; observed {value:g}."
+                        )
+                        incident_cur = conn.execute(
+                            """INSERT INTO incidents
+                               (title, description, severity, status, source, asset_id, created_at, updated_at)
+                               VALUES (?, ?, ?, 'open', 'detection_rule', ?, ?, ?)""",
+                            (rule["name"], description, rule["severity"], rule["asset_id"], ts, ts),
+                        )
+                        incident_id = int(incident_cur.lastrowid)
+                        conn.execute(
+                            """INSERT INTO audit (timestamp, event, details, signature)
+                               VALUES (?, ?, ?, '')""",
+                            (
+                                ts,
+                                "detection_rule_triggered",
+                                json.dumps(
+                                    {
+                                        "rule_id": rule["id"],
+                                        "incident_id": incident_id,
+                                        "metric": rule["metric"],
+                                        "value": value,
+                                        "threshold": threshold,
+                                        "asset_id": rule["asset_id"],
+                                    }
+                                ),
+                            ),
+                        )
+                        conn.execute(
+                            """INSERT INTO detection_rule_state
+                               (rule_id, active_match, active_incident_id, last_value, last_evaluated_at)
+                               VALUES (?, 1, ?, ?, ?)
+                               ON CONFLICT(rule_id) DO UPDATE SET
+                                 active_match = 1,
+                                 active_incident_id = excluded.active_incident_id,
+                                 last_value = excluded.last_value,
+                                 last_evaluated_at = excluded.last_evaluated_at""",
+                            (rule["id"], incident_id, value, ts),
+                        )
+                    match = {
+                        "rule_id": rule["id"],
+                        "name": rule["name"],
+                        "metric": rule["metric"],
+                        "operator": rule["operator"],
+                        "threshold": threshold,
+                        "value": value,
+                        "severity": rule["severity"],
+                        "asset_id": rule["asset_id"],
+                        "incident_id": incident_id,
+                        "new_incident": created,
+                    }
+                    matches.append(match)
+                    if created:
+                        new_incidents.append(match)
+                elif was_active:
+                    conn.execute(
+                        """UPDATE detection_rule_state
+                           SET active_match = 0, active_incident_id = NULL,
+                               last_value = ?, last_evaluated_at = ?
+                           WHERE rule_id = ?""",
+                        (value, ts, rule["id"]),
+                    )
+                    details = {
+                        "rule_id": rule["id"],
+                        "name": rule["name"],
+                        "value": value,
+                        "reason": "condition_cleared",
+                    }
+                    conn.execute(
+                        "INSERT INTO audit (timestamp, event, details, signature) VALUES (?, ?, ?, '')",
+                        (ts, "detection_rule_cleared", json.dumps(details)),
+                    )
+                    cleared.append(details)
+
+        return {
+            "evaluated": evaluated,
+            "matches": matches,
+            "new_incidents": new_incidents,
+            "cleared": cleared,
+        }
