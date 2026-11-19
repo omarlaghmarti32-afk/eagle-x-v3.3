@@ -50,22 +50,42 @@ See [SECURITY.md](SECURITY.md) for reporting and operator checklist.
 | GET | `/api/ready` | public |
 | GET | `/api/status` | optional (`PROTECT_READ_APIS`) |
 | GET | `/api/github/overview` | Bearer (`EAGLE_API_TOKEN`, always required; GitHub integration is opt-in) |
+| GET/POST | `/api/assets` | Bearer (always required; local inventory) |
+| GET/POST | `/api/incidents` | Bearer (always required; local incident log) |
+| PATCH | `/api/incidents/{id}` | Bearer (always required; local status update) |
+| GET/POST | `/api/detection-rules` | Bearer (always required; local rules) |
+| PATCH | `/api/detection-rules/{id}` | Bearer (always required; enable/disable a rule) |
+| POST | `/api/detection-rules/evaluate` | Bearer (always required; evaluate one local sample) |
 | POST | `/api/detect` | Bearer |
 | POST | `/api/heal` | Bearer |
 | GET | `/api/blocklist` | Bearer |
 | WebSocket | `/ws` | token message first |
 
-The dashboard uses `/ws` for authenticated live samples and threat events, with
-short-interval REST refresh as a fallback. Send `{"token":"<EAGLE_API_TOKEN>"}`
-as the first WebSocket message; use `wss://` behind TLS.
+The Arabic dashboard is self-contained: its CSS and system-font stack are local,
+and it does not load a CDN or third-party web font. Its asset and incident views
+use the local API and SQLite database. Send `{"token":"<EAGLE_API_TOKEN>"}`
+as the first WebSocket message if using the optional live stream; use `wss://` behind TLS.
 
 ## Local-first core
 
 EAGLE-X's core runs on its own API process and stores threats, metrics, blocklist,
-and audit events in local SQLite. Host monitoring, detection, the dashboard, and
-the simulated response do not require a GitHub account or another SaaS integration.
-Optional integrations are kept outside that core; the health webhook is inactive
-unless explicitly configured.
+audit events, an operator-maintained asset inventory, and an incident log in local
+SQLite. The asset inventory is manually curated rather than discovered by scanning;
+incidents can be linked to known assets and moved through open, investigating,
+contained, and resolved states. Asset and incident endpoints always require the
+EAGLE-X API token. Host monitoring, detection, the dashboard, and the simulated
+response do not require a GitHub account or another SaaS integration. Optional
+integrations are kept outside that core; the health webhook is inactive unless
+explicitly configured.
+
+Detection rules can watch any local host metric (`cpu_percent`, `mem_percent`,
+network byte rates, process count, connection count, disk usage, or the entropy
+proxy) using a numeric comparison. Each rule can set incident severity and link
+to a local asset. The background monitor evaluates enabled rules; a threshold
+crossing creates one incident for that breach episode, and a clear-then-rebreach
+starts a new incident. The dashboard can also evaluate a fresh local sample on
+demand. Rule definitions, state transitions, incidents, and their audit events
+stay in the same SQLite database; no SaaS or external integration is involved.
 
 ## Optional GitHub Security Command Center
 

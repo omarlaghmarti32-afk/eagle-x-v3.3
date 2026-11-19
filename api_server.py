@@ -5,12 +5,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import os
 import secrets
+import sqlite3
 import sys
 import time
 from contextlib import asynccontextmanager
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from fastapi import Depends, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -163,6 +165,18 @@ async def live_monitor_loop():
                 if i < len(features)
             }
 
+            rule_result = db.evaluate_detection_rules(snap)
+            for alert in rule_result["new_incidents"]:
+                await live_connections.broadcast(
+                    {
+                        "type": "detection_rule_alert",
+                        "rule_id": alert["rule_id"],
+                        "incident_id": alert["incident_id"],
+                        "name": alert["name"],
+                        "severity": alert["severity"],
+                    }
+                )
+
             if _packets % 15 == 0:
                 db.record_metrics(
                     _packets,
@@ -301,6 +315,40 @@ class PacketData(BaseModel):
 class HealRequest(BaseModel):
     threat_type: str = Field(default="MANUAL_TEST", max_length=64)
     indicator: Optional[str] = Field(default=None, max_length=256)
+
+
+class AssetCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=128)
+    asset_type: Literal["server", "workstation", "network", "cloud", "application", "other"] = "other"
+    address: Optional[str] = Field(default=None, max_length=255)
+    criticality: Literal["low", "medium", "high", "critical"] = "medium"
+    notes: str = Field(default="", max_length=2000)
+
+
+class IncidentCreate(BaseModel):
+    title: str = Field(..., min_length=1, max_length=200)
+    description: str = Field(default="", max_length=5000)
+    severity: Literal["low", "medium", "high", "critical"] = "medium"
+    source: str = Field(default="manual", max_length=48)
+    asset_id: Optional[int] = Field(default=None, ge=1)
+
+
+class IncidentStatusUpdate(BaseModel):
+    status: Literal["open", "investigating", "contained", "resolved"]
+
+
+class DetectionRuleCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=128)
+    metric: str = Field(..., min_length=1, max_length=64)
+    operator: Literal["gt", "gte", "lt", "lte", "eq"]
+    threshold: float
+    severity: Literal["low", "medium", "high", "critical"] = "medium"
+    enabled: bool = True
+    asset_id: Optional[int] = Field(default=None, ge=1)
+
+
+class DetectionRuleStatusUpdate(BaseModel):
+    enabled: bool
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -495,6 +543,136 @@ async def get_threats(request: Request):
 @app.get("/api/blocklist")
 async def get_blocklist(_: bool = Depends(require_token)):
     return {"blocks": db.list_blocks()}
+
+
+@app.get("/api/assets")
+async def list_assets(_: bool = Depends(require_token)):
+    """List the operator-maintained local asset inventory (always token-protected)."""
+    return {"assets": db.list_assets()}
+
+
+@app.post("/api/assets", status_code=201)
+async def create_asset(asset: AssetCreate, _: bool = Depends(require_token)):
+    name = asset.name.strip()
+    if not name:
+        raise HTTPException(status_code=422, detail="Asset name cannot be blank")
+    try:
+        asset_id = db.add_asset(
+            name=name,
+            asset_type=asset.asset_type,
+            address=asset.address.strip() or None if asset.address else None,
+            criticality=asset.criticality,
+            notes=asset.notes.strip(),
+        )
+    except sqlite3.IntegrityError:
+        raise HTTPException(status_code=409, detail="An asset with this name already exists")
+    db.add_audit("asset_created", {"asset_id": asset_id, "name": name, "asset_type": asset.asset_type})
+    return {"asset": db.get_asset(asset_id)}
+
+
+@app.get("/api/detection-rules")
+async def list_detection_rules(_: bool = Depends(require_token)):
+    """List local threshold rules and their current breach state."""
+    return {"rules": db.list_detection_rules()}
+
+
+@app.post("/api/detection-rules", status_code=201)
+async def create_detection_rule(rule: DetectionRuleCreate, _: bool = Depends(require_token)):
+    name = rule.name.strip()
+    if not name:
+        raise HTTPException(status_code=422, detail="Rule name cannot be blank")
+    if rule.metric not in FEATURE_NAMES:
+        raise HTTPException(status_code=422, detail="Unsupported local telemetry metric")
+    if not math.isfinite(rule.threshold):
+        raise HTTPException(status_code=422, detail="Threshold must be a finite number")
+    if rule.asset_id is not None and db.get_asset(rule.asset_id) is None:
+        raise HTTPException(status_code=404, detail="Linked asset not found")
+    try:
+        rule_id = db.add_detection_rule(
+            name=name,
+            metric=rule.metric,
+            operator=rule.operator,
+            threshold=rule.threshold,
+            severity=rule.severity,
+            enabled=rule.enabled,
+            asset_id=rule.asset_id,
+        )
+    except sqlite3.IntegrityError:
+        raise HTTPException(status_code=409, detail="A detection rule with this name already exists")
+    db.add_audit(
+        "detection_rule_created",
+        {"rule_id": rule_id, "metric": rule.metric, "asset_id": rule.asset_id},
+    )
+    return {"rule": db.get_detection_rule(rule_id)}
+
+
+@app.post("/api/detection-rules/evaluate")
+async def evaluate_detection_rules(_: bool = Depends(require_token)):
+    """Evaluate one local host snapshot and record any new breach incidents."""
+    metrics = await asyncio.to_thread(monitor.one_shot)
+    result = await asyncio.to_thread(db.evaluate_detection_rules, metrics)
+    db.add_audit(
+        "detection_rules_evaluated",
+        {"evaluated": result["evaluated"], "matches": len(result["matches"]),
+         "new_incidents": len(result["new_incidents"])},
+    )
+    for alert in result["new_incidents"]:
+        await live_connections.broadcast(
+            {
+                "type": "detection_rule_alert",
+                "rule_id": alert["rule_id"],
+                "incident_id": alert["incident_id"],
+                "name": alert["name"],
+                "severity": alert["severity"],
+            }
+        )
+    return result
+
+
+@app.patch("/api/detection-rules/{rule_id}")
+async def update_detection_rule(
+    rule_id: int, update: DetectionRuleStatusUpdate, _: bool = Depends(require_token)
+):
+    if not db.set_detection_rule_enabled(rule_id, update.enabled):
+        raise HTTPException(status_code=404, detail="Detection rule not found")
+    db.add_audit("detection_rule_status_updated", {"rule_id": rule_id, "enabled": update.enabled})
+    return {"rule": db.get_detection_rule(rule_id)}
+
+
+@app.get("/api/incidents")
+async def list_incidents(_: bool = Depends(require_token)):
+    """List local incident records (always token-protected)."""
+    return {"incidents": db.list_incidents()}
+
+
+@app.post("/api/incidents", status_code=201)
+async def create_incident(incident: IncidentCreate, _: bool = Depends(require_token)):
+    title = incident.title.strip()
+    if not title:
+        raise HTTPException(status_code=422, detail="Incident title cannot be blank")
+    source = incident.source.strip() or "manual"
+    if incident.asset_id is not None and db.get_asset(incident.asset_id) is None:
+        raise HTTPException(status_code=404, detail="Linked asset not found")
+    incident_id = db.add_incident(
+        title=title,
+        description=incident.description.strip(),
+        severity=incident.severity,
+        source=source,
+        asset_id=incident.asset_id,
+    )
+    db.add_audit(
+        "incident_created",
+        {"incident_id": incident_id, "severity": incident.severity, "asset_id": incident.asset_id},
+    )
+    return {"incident": next(item for item in db.list_incidents() if item["id"] == incident_id)}
+
+
+@app.patch("/api/incidents/{incident_id}")
+async def update_incident(incident_id: int, update: IncidentStatusUpdate, _: bool = Depends(require_token)):
+    if not db.update_incident_status(incident_id, update.status):
+        raise HTTPException(status_code=404, detail="Incident not found")
+    db.add_audit("incident_status_updated", {"incident_id": incident_id, "status": update.status})
+    return {"incident": next(item for item in db.list_incidents() if item["id"] == incident_id)}
 
 
 @app.get("/api/config")

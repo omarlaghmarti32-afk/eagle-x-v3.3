@@ -4,414 +4,279 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="eagle-api-origin" content="">
-    <title>EAGLE-X v3.3 — لوحة التحكم</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+    <meta name="color-scheme" content="dark">
+    <title>EAGLE-X — مركز الأمن المحلي</title>
     <style>
-        body { font-family: 'Cairo', sans-serif; background-color: #0a192f; color: #e6f1ff; }
-        .seal-gold { color: #d4af37; }
-        .bg-card { background-color: #112240; border: 1px solid rgba(212, 175, 55, 0.2); }
-        .glow-gold { box-shadow: 0 0 20px rgba(212, 175, 55, 0.15); }
+        :root { color-scheme: dark; --bg:#07111f; --panel:#101f33; --line:#203550; --gold:#e2bb58; --text:#e7eff9; --muted:#99a9bc; --green:#68d391; --red:#fc8181; --blue:#83c5ff; }
+        * { box-sizing:border-box; }
+        body { margin:0; background:var(--bg); color:var(--text); font:15px/1.6 system-ui,-apple-system,"Segoe UI",Tahoma,sans-serif; }
+        main { max-width:1200px; margin:auto; padding:24px; }
+        header,.panel,.stat { background:var(--panel); border:1px solid var(--line); border-radius:16px; }
+        header { display:flex; align-items:center; justify-content:space-between; gap:20px; padding:22px 24px; margin-bottom:20px; }
+        h1,h2,h3,p { margin-top:0; } h1 { color:var(--gold); margin-bottom:3px; font-size:clamp(1.5rem,4vw,2rem); }
+        h2 { color:var(--gold); font-size:1.25rem; margin-bottom:14px; } h3 { font-size:1rem; margin-bottom:8px; }
+        .sub,.muted { color:var(--muted); } .sub { margin:0; font-size:.92rem; }
+        .status { white-space:nowrap; color:var(--green); font-weight:700; }
+        .grid { display:grid; gap:16px; } .stats { grid-template-columns:repeat(3,minmax(0,1fr)); margin-bottom:20px; }
+        .columns { grid-template-columns:repeat(2,minmax(0,1fr)); align-items:start; }
+        .stat,.panel { padding:18px; } .stat-label { color:var(--muted); font-size:.9rem; } .stat-value { color:var(--gold); font-size:1.7rem; font-weight:800; }
+        .panel { margin-bottom:20px; } .form-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
+        label { display:block; font-size:.9rem; color:var(--muted); } input,select,textarea,button { font:inherit; }
+        input,select,textarea { display:block; width:100%; color:var(--text); background:#081522; border:1px solid #31465f; border-radius:9px; padding:10px 12px; margin-top:5px; }
+        textarea { min-height:82px; resize:vertical; } input:focus,select:focus,textarea:focus { outline:2px solid #4a86b8; outline-offset:1px; }
+        button { border:0; border-radius:9px; padding:10px 15px; color:#07111f; background:var(--gold); font-weight:800; cursor:pointer; }
+        button:hover { filter:brightness(1.08); } button:disabled { opacity:.5; cursor:wait; }
+        .actions { display:flex; flex-wrap:wrap; align-items:end; gap:10px; margin-top:12px; } .actions label { flex:1 1 280px; }
+        .message { min-height:1.5em; margin:9px 0 0; font-size:.9rem; } .error { color:var(--red); } .success { color:var(--green); }
+        .list { display:grid; gap:10px; } .item { background:#0a1726; border:1px solid var(--line); border-radius:11px; padding:13px; overflow-wrap:anywhere; }
+        .item-head { display:flex; justify-content:space-between; align-items:flex-start; gap:10px; } .item-title { font-weight:800; }
+        .badge { display:inline-block; padding:2px 9px; border:1px solid #53677e; border-radius:99px; color:var(--muted); font-size:.8rem; white-space:nowrap; }
+        .critical,.high { color:#ffb1a8; border-color:#9a4a4a; } .medium { color:#f4d98d; border-color:#8e7434; } .low { color:#a9d9b5; border-color:#3c7650; }
+        .item p { margin:7px 0 0; } .inline-select { max-width:180px; margin:8px 0 0; padding:6px 8px; }
+        .empty { color:var(--muted); margin:0; padding:12px 0; } .token-note { font-size:.82rem; color:var(--muted); }
+        .threat { display:grid; grid-template-columns:1fr auto auto; gap:12px; align-items:center; border-bottom:1px solid var(--line); padding:9px 0; }
+        .threat:last-child { border-bottom:0; } .token-wrap { margin-bottom:20px; }
+        details > summary { color:var(--muted); font-weight:700; cursor:pointer; }
+        pre { max-height:360px; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; color:#c5d8ee; background:#081522; border:1px solid var(--line); border-radius:9px; padding:12px; }
+        @media(max-width:760px) { main { padding:14px; } header { align-items:flex-start; flex-direction:column; padding:17px; } .columns { grid-template-columns:1fr; } }
+        @media(max-width:480px) { .stats { grid-template-columns:1fr; gap:9px; } .stat { padding:12px 15px; } .stat-value { font-size:1.35rem; } .form-grid { grid-template-columns:1fr; } .threat { grid-template-columns:1fr auto; gap:4px 10px; } .threat .muted { grid-column:1 / -1; } }
     </style>
 </head>
-<body class="min-h-screen p-6">
-    <div class="max-w-7xl mx-auto space-y-6">
-        <header class="flex justify-between items-center bg-card p-6 rounded-2xl glow-gold">
-            <div class="flex items-center space-x-4 space-x-reverse">
-                <div class="text-4xl">🦅</div>
-                <div>
-                    <h1 class="text-3xl font-black seal-gold">EAGLE-X v3.3</h1>
-                    <p class="text-sm text-gray-400">نظام تشغيلي حقيقي • مراقبة المضيف • AES-256-GCM + Ed25519</p>
-                </div>
-            </div>
-            <div class="flex items-center space-x-3 space-x-reverse">
-                <span class="inline-block w-3 h-3 bg-green-500 rounded-full animate-pulse"></span>
-                <span id="status-text" class="text-sm font-bold text-green-400">جاري الاتصال...</span>
-            </div>
-        </header>
-
-        <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
-            <div class="bg-card p-6 rounded-2xl">
-                <p class="text-sm text-gray-400 mb-2">العينات المفحوصة</p>
-                <h3 id="stat-packets" class="text-3xl font-black seal-gold">0</h3>
-            </div>
-            <div class="bg-card p-6 rounded-2xl">
-                <p class="text-sm text-gray-400 mb-2">التهديدات</p>
-                <h3 id="stat-threats" class="text-3xl font-black text-red-400">0</h3>
-            </div>
-            <div class="bg-card p-6 rounded-2xl">
-                <p class="text-sm text-gray-400 mb-2">CPU / RAM</p>
-                <h3 id="stat-host" class="text-xl font-bold text-green-400">—</h3>
-            </div>
-            <div class="bg-card p-6 rounded-2xl">
-                <p class="text-sm text-gray-400 mb-2">التشفير النشط</p>
-                <h3 class="text-lg font-bold seal-gold">AES-256-GCM</h3>
-            </div>
+<body>
+<main>
+    <header>
+        <div>
+            <h1>EAGLE-X | مركز الأمن المحلي</h1>
+            <p class="sub">لوحة مراقبة وإدارة تعمل مع خادمك وقاعدة بيانات SQLite المحلية.</p>
         </div>
+        <div id="system-status" class="status" role="status" aria-live="polite">جارٍ الاتصال بالخادم…</div>
+    </header>
 
-        <section class="bg-card p-6 rounded-2xl space-y-5" aria-labelledby="github-heading">
-            <header class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-                <div>
-                    <h2 id="github-heading" class="text-2xl font-black seal-gold">تكامل اختياري — GitHub</h2>
-                    <p id="github-repo-meta" class="text-sm text-gray-400 mt-1">النواة المحلية لا تحتاج إلى GitHub؛ هذا العرض الخارجي معطل افتراضيًا</p>
-                </div>
-                <div class="flex items-center gap-3">
-                    <span id="github-overall-status" class="text-sm font-bold text-gray-300" aria-live="polite">أدخل رمز EAGLE-X لعرض البيانات</span>
-                    <button id="github-refresh" type="button" class="bg-yellow-600 hover:bg-yellow-500 text-black font-bold px-4 py-2 rounded-lg">تحديث</button>
-                </div>
-            </header>
+    <section class="panel token-wrap" aria-labelledby="access-heading">
+        <h2 id="access-heading">الوصول الآمن</h2>
+        <div class="actions">
+            <label for="api-token">رمز EAGLE-X API
+                <input id="api-token" type="password" autocomplete="off" placeholder="أدخل الرمز لإدارة الأصول والحوادث">
+            </label>
+            <button id="connect-button" type="button">اتصال / تحديث</button>
+        </div>
+        <p class="token-note">يبقى الرمز في ذاكرة الصفحة فقط ولا يُحفظ في التخزين المحلي أو يُرسل إلى جهة أخرى.</p>
+        <p id="access-message" class="message" aria-live="polite"></p>
+    </section>
 
-            <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div class="bg-gray-900/50 p-4 rounded-xl">
-                    <p class="text-xs text-gray-400">تشغيلات فاشلة</p>
-                    <p id="github-workflow-count" class="text-2xl font-black text-red-300">—</p>
-                </div>
-                <div class="bg-gray-900/50 p-4 rounded-xl">
-                    <p class="text-xs text-gray-400">عمليات نشر فاشلة</p>
-                    <p id="github-deployment-count" class="text-2xl font-black text-orange-300">—</p>
-                </div>
-                <div class="bg-gray-900/50 p-4 rounded-xl">
-                    <p class="text-xs text-gray-400">الثغرات المفتوحة</p>
-                    <p id="github-vulnerability-count" class="text-2xl font-black text-yellow-200">—</p>
-                </div>
-            </div>
+    <section class="grid stats" aria-label="ملخص النظام">
+        <div class="stat"><div class="stat-label">العينات المفحوصة</div><div id="stat-packets" class="stat-value">—</div></div>
+        <div class="stat"><div class="stat-label">التهديدات المسجلة</div><div id="stat-threats" class="stat-value">—</div></div>
+        <div class="stat"><div class="stat-label">أصولك المحلية</div><div id="stat-assets" class="stat-value">—</div></div>
+    </section>
 
-            <div class="grid grid-cols-1 xl:grid-cols-2 gap-5">
-                <div class="bg-gray-900/40 p-4 rounded-xl">
-                    <h3 class="font-bold text-lg seal-gold mb-3">الأولوية الآن</h3>
-                    <div id="github-priorities" class="space-y-3" aria-live="polite">
-                        <p class="text-sm text-gray-400">أدخل رمز EAGLE-X في حقل التحكم لبدء الفحص.</p>
-                    </div>
+    <div class="grid columns">
+        <section class="panel" aria-labelledby="assets-heading">
+            <h2 id="assets-heading">جرد الأصول</h2>
+            <form id="asset-form">
+                <div class="form-grid">
+                    <label>اسم الأصل<input name="name" required maxlength="128" placeholder="مثال: خادم الملفات"></label>
+                    <label>نوع الأصل<select name="asset_type"><option value="server">خادم</option><option value="workstation">محطة عمل</option><option value="network">شبكة</option><option value="cloud">سحابي</option><option value="application">تطبيق</option><option value="other">أخرى</option></select></label>
+                    <label>عنوان اختياري<input name="address" maxlength="255" placeholder="اسم مضيف أو عنوان داخلي"></label>
+                    <label>الأهمية<select name="criticality"><option value="low">منخفضة</option><option value="medium" selected>متوسطة</option><option value="high">عالية</option><option value="critical">حرجة</option></select></label>
                 </div>
-                <div class="space-y-4">
-                    <div class="bg-gray-900/40 p-4 rounded-xl">
-                        <h3 class="font-bold seal-gold mb-2">آخر تشغيلات CI / Actions</h3>
-                        <div id="github-workflows" class="space-y-2 text-sm"><p class="text-gray-400">بانتظار البيانات</p></div>
-                    </div>
-                    <div class="bg-gray-900/40 p-4 rounded-xl">
-                        <h3 class="font-bold seal-gold mb-2">حالة النشر</h3>
-                        <div id="github-deployments" class="space-y-2 text-sm"><p class="text-gray-400">بانتظار البيانات</p></div>
-                    </div>
-                    <div class="bg-gray-900/40 p-4 rounded-xl">
-                        <h3 class="font-bold seal-gold mb-2">تنبيهات الثغرات</h3>
-                        <div id="github-vulnerabilities" class="space-y-2 text-sm"><p class="text-gray-400">بانتظار البيانات</p></div>
-                    </div>
-                </div>
-            </div>
+                <label style="margin-top:12px">ملاحظات<textarea name="notes" maxlength="2000" placeholder="ملاحظات تشغيلية مختصرة"></textarea></label>
+                <div class="actions"><button type="submit">إضافة إلى الجرد المحلي</button></div>
+                <p id="asset-message" class="message" aria-live="polite"></p>
+            </form>
+            <div id="assets-list" class="list"><p class="empty">أدخل رمز API لعرض الأصول.</p></div>
         </section>
 
-        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <div class="lg:col-span-2 bg-card p-6 rounded-2xl">
-                <h3 class="text-xl font-bold mb-4 seal-gold">سجل التهديدات</h3>
-                <div class="overflow-x-auto">
-                    <table class="w-full text-right text-sm">
-                        <thead>
-                            <tr class="border-b border-gray-700 text-gray-400">
-                                <th class="pb-3">الوقت</th>
-                                <th class="pb-3">النوع</th>
-                                <th class="pb-3">الثقة</th>
-                                <th class="pb-3">الخطورة</th>
-                            </tr>
-                        </thead>
-                        <tbody id="threat-table-body" class="divide-y divide-gray-800">
-                            <tr><td colspan="4" class="py-4 text-center text-gray-500">لا توجد تهديدات بعد</td></tr>
-                        </tbody>
-                    </table>
+        <section class="panel" aria-labelledby="incidents-heading">
+            <h2 id="incidents-heading">سجل الحوادث</h2>
+            <form id="incident-form">
+                <div class="form-grid">
+                    <label>عنوان الحادث<input name="title" required maxlength="200" placeholder="مثال: محاولات دخول غير معتادة"></label>
+                    <label>الخطورة<select name="severity"><option value="low">منخفضة</option><option value="medium" selected>متوسطة</option><option value="high">عالية</option><option value="critical">حرجة</option></select></label>
                 </div>
-            </div>
-
-            <div class="bg-card p-6 rounded-2xl space-y-4">
-                <h3 class="text-xl font-bold seal-gold">التحكم</h3>
-                <input id="api-token" type="password" placeholder="أدخل EAGLE_API_TOKEN" class="w-full bg-gray-900 border border-gray-700 rounded-lg p-2.5 text-white">
-                <button onclick="triggerScan()" class="w-full bg-yellow-600 hover:bg-yellow-500 text-black font-bold py-3 rounded-xl">فحص فوري</button>
-                <button onclick="triggerHeal()" class="w-full bg-red-600 hover:bg-red-500 text-white font-bold py-3 rounded-xl">اختبار الشفاء</button>
-                <p class="text-xs text-gray-500">يُحفظ التوكن في الذاكرة فقط ولا يُضمّن في الصفحة.</p>
-            </div>
-        </div>
+                <label style="margin-top:12px">الأصل المرتبط (اختياري)<select id="incident-asset" name="asset_id"><option value="">بدون ربط</option></select></label>
+                <label style="margin-top:12px">الوصف<textarea name="description" maxlength="5000" placeholder="ما الذي حدث؟"></textarea></label>
+                <div class="actions"><button type="submit">تسجيل الحادث</button></div>
+                <p id="incident-message" class="message" aria-live="polite"></p>
+            </form>
+            <div id="incidents-list" class="list"><p class="empty">أدخل رمز API لعرض الحوادث.</p></div>
+        </section>
     </div>
 
-    <script>
-        function authHeaders() {
-            const t = document.getElementById('api-token').value.trim();
-            return t ? { 'Authorization': 'Bearer ' + t, 'Content-Type': 'application/json' } : { 'Content-Type': 'application/json' };
-        }
+    <section class="panel" aria-labelledby="rules-heading">
+        <h2 id="rules-heading">قواعد الكشف المحلية</h2>
+        <p class="muted">تُقيَّم القواعد على مقاييس الجهاز التي يجمعها الخادم. عند بدء المطابقة يُسجَّل حادث محلي مرة واحدة لكل موجة، ويمكن ربط القاعدة بأصل معروف.</p>
+        <form id="rule-form">
+            <div class="form-grid">
+                <label>اسم القاعدة<input name="name" required maxlength="128" placeholder="مثال: ارتفاع استخدام المعالج"></label>
+                <label>المقياس المحلي<select name="metric"><option value="cpu_percent">استخدام المعالج (%)</option><option value="mem_percent">استخدام الذاكرة (%)</option><option value="net_bytes_sent_rate">معدل إرسال الشبكة (بايت/ث)</option><option value="net_bytes_recv_rate">معدل استقبال الشبكة (بايت/ث)</option><option value="process_count">عدد العمليات</option><option value="connection_count">عدد الاتصالات</option><option value="disk_usage_percent">استخدام القرص (%)</option><option value="entropy_proxy">مؤشر الانتروبيا</option></select></label>
+                <label>شرط المقارنة<select name="operator"><option value="gt">أكبر من (&gt;)</option><option value="gte">أكبر من أو يساوي (≥)</option><option value="lt">أقل من (&lt;)</option><option value="lte">أقل من أو يساوي (≤)</option><option value="eq">يساوي (=)</option></select></label>
+                <label>الحدّ المطلوب<input name="threshold" type="number" step="any" required placeholder="مثال: 85"></label>
+                <label>خطورة الحادث<select name="severity"><option value="low">منخفضة</option><option value="medium" selected>متوسطة</option><option value="high">عالية</option><option value="critical">حرجة</option></select></label>
+                <label>الأصل المرتبط (اختياري)<select id="rule-asset" name="asset_id"><option value="">بدون ربط</option></select></label>
+            </div>
+            <div class="actions"><button type="submit">إضافة قاعدة محلية</button><button id="evaluate-rules" type="button">تقييم إشارات الجهاز الآن</button></div>
+            <p id="rule-message" class="message" aria-live="polite"></p>
+        </form>
+        <div id="rules-list" class="list"><p class="empty">أدخل رمز API لعرض قواعد الكشف.</p></div>
+    </section>
 
-        const API_ORIGIN = (() => {
-            const configured = document.querySelector('meta[name="eagle-api-origin"]')?.content?.trim();
-            if (!configured) return '';
-            try {
-                const url = new URL(configured);
-                if (url.protocol !== 'https:' && url.hostname !== 'localhost' && url.hostname !== '127.0.0.1') return '';
-                return url.origin;
-            } catch (e) { return ''; }
-        })();
-        const apiUrl = (path) => `${API_ORIGIN}${path}`;
-        function apiWebSocketUrl(path) {
-            const url = new URL(path, API_ORIGIN || location.origin);
-            url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
-            return url.toString();
-        }
+    <details class="panel">
+        <summary>تكامل إضافي اختياري — GitHub (النظام المحلي لا يحتاجه)</summary>
+        <p class="muted" style="margin:12px 0">لا يحدث أي اتصال بهذا التكامل تلقائيًا. عند الضغط فقط، يطلب الخادم المحلي ملخص GitHub إذا كان المسؤول قد فعّله.</p>
+        <button id="github-load" type="button">تحميل الملخص الاختياري</button>
+        <p id="github-message" class="message" aria-live="polite">التكامل لا يُستخدم افتراضيًا.</p>
+        <pre id="github-output" hidden></pre>
+    </details>
 
-        const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (ch) => ({
-            '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
-        }[ch]));
-        const githubStatusLabels = {
-            failed: 'توجد إخفاقات', running: 'جارٍ التنفيذ', healthy: 'سليم',
-            alerts: 'تنبيهات مفتوحة', clear: 'لا تنبيهات مفتوحة', partial: 'بيانات جزئية',
-            critical: 'حرج', high: 'عالٍ', medium: 'متوسط', low: 'منخفض',
-            unknown: 'غير معروف', unavailable: 'غير متاح', integration_disabled: 'معطل — الوضع المحلي', authentication_required: 'رمز GitHub مطلوب',
-            permission_required: 'صلاحية GitHub ناقصة', feature_disabled: 'الميزة غير مفعّلة', rate_limited: 'حد الطلبات مؤقتاً',
-            not_enabled_or_permission_required: 'غير مفعّل أو الصلاحية ناقصة',
-            github_unreachable: 'تعذر الاتصال بـ GitHub', github_api_error: 'خطأ من GitHub',
-            not_found_or_permission_required: 'المستودع غير موجود أو غير متاح',
-            in_progress: 'جارٍ التنفيذ', success: 'نجاح', error: 'خطأ', failure: 'فشل',
-            queued: 'في الانتظار', pending: 'قيد الانتظار', completed: 'مكتمل', cancelled: 'أُلغي'
-        };
-        const githubStatusClasses = {
-            failed: 'text-red-300 border-red-500/40', error: 'text-red-300 border-red-500/40', failure: 'text-red-300 border-red-500/40',
-            critical: 'text-red-300 border-red-500/40', high: 'text-orange-200 border-orange-500/40',
-            medium: 'text-yellow-100 border-yellow-500/40', low: 'text-gray-300 border-gray-600',
-            alerts: 'text-orange-200 border-orange-500/40', partial: 'text-yellow-200 border-yellow-500/40',
-            healthy: 'text-green-300 border-green-500/40', clear: 'text-green-300 border-green-500/40', success: 'text-green-300 border-green-500/40',
-            running: 'text-blue-200 border-blue-500/40', in_progress: 'text-blue-200 border-blue-500/40'
-        };
-        function githubStatusBadge(status) {
-            const label = githubStatusLabels[status] || 'غير معروف';
-            const cls = githubStatusClasses[status] || 'text-gray-300 border-gray-600';
-            return `<span class="inline-block rounded-full border px-2 py-0.5 text-xs ${cls}">${escapeHtml(label)}</span>`;
+    <section class="panel" aria-labelledby="threats-heading">
+        <h2 id="threats-heading">أحدث التهديدات المكتشفة</h2>
+        <div id="threat-list"><p class="empty">لا توجد بيانات بعد.</p></div>
+    </section>
+</main>
+<script>
+    const API_ORIGIN = (() => {
+        const configured = document.querySelector('meta[name="eagle-api-origin"]')?.content?.trim();
+        if (!configured) return '';
+        try {
+            const url = new URL(configured);
+            if (url.protocol !== 'https:' && url.hostname !== 'localhost' && url.hostname !== '127.0.0.1') return '';
+            return url.origin;
+        } catch (_) { return ''; }
+    })();
+    const apiUrl = (path) => `${API_ORIGIN}${path}`;
+    const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+    const token = () => document.getElementById('api-token').value.trim();
+    const headers = () => ({'Content-Type':'application/json', ...(token() ? {'Authorization':`Bearer ${token()}`} : {})});
+    const labels = {server:'خادم',workstation:'محطة عمل',network:'شبكة',cloud:'سحابي',application:'تطبيق',other:'أخرى',low:'منخفض',medium:'متوسط',high:'عالٍ',critical:'حرج',open:'مفتوح',investigating:'قيد التحقيق',contained:'تمت السيطرة',resolved:'تم الحل'};
+    const incidentStatuses = ['open','investigating','contained','resolved'];
+    const metricLabels = {cpu_percent:'استخدام المعالج (%)',mem_percent:'استخدام الذاكرة (%)',net_bytes_sent_rate:'معدل إرسال الشبكة (بايت/ث)',net_bytes_recv_rate:'معدل استقبال الشبكة (بايت/ث)',process_count:'عدد العمليات',connection_count:'عدد الاتصالات',disk_usage_percent:'استخدام القرص (%)',entropy_proxy:'مؤشر الانتروبيا'};
+    const operatorLabels = {gt:'>',gte:'≥',lt:'<',lte:'≤',eq:'='};
+    async function api(path, options={}) {
+        const response = await fetch(apiUrl(path), {cache:'no-store', ...options, headers:{...headers(), ...(options.headers || {})}});
+        let body = {};
+        try { body = await response.json(); } catch (_) {}
+        if (!response.ok) throw new Error(body.detail || `HTTP ${response.status}`);
+        return body;
+    }
+    function message(id, text, kind='') {
+        const el = document.getElementById(id); el.textContent = text; el.className = `message ${kind}`;
+    }
+    function setList(id, html) { document.getElementById(id).innerHTML = html; }
+    function renderAssets(assets) {
+        document.getElementById('stat-assets').textContent = assets.length.toLocaleString('ar');
+        const select = document.getElementById('incident-asset');
+        const selected = select.value;
+        select.innerHTML = '<option value="">بدون ربط</option>' + assets.map(a => `<option value="${a.id}">${escapeHtml(a.name)}</option>`).join('');
+        if (assets.some(a => String(a.id) === selected)) select.value = selected;
+        const ruleSelect = document.getElementById('rule-asset');
+        const selectedRuleAsset = ruleSelect.value;
+        ruleSelect.innerHTML = '<option value="">بدون ربط</option>' + assets.map(a => `<option value="${a.id}">${escapeHtml(a.name)}</option>`).join('');
+        if (assets.some(a => String(a.id) === selectedRuleAsset)) ruleSelect.value = selectedRuleAsset;
+        setList('assets-list', assets.length ? assets.map(a => `<article class="item"><div class="item-head"><span class="item-title">${escapeHtml(a.name)}</span><span class="badge ${escapeHtml(a.criticality)}">${escapeHtml(labels[a.criticality] || a.criticality)}</span></div><p class="muted">${escapeHtml(labels[a.asset_type] || a.asset_type)}${a.address ? ` · ${escapeHtml(a.address)}` : ''}</p>${a.notes ? `<p>${escapeHtml(a.notes)}</p>` : ''}</article>`).join('') : '<p class="empty">لم تُضف أصول بعد.</p>');
+    }
+    function renderIncidents(items) {
+        setList('incidents-list', items.length ? items.map(i => `<article class="item"><div class="item-head"><span class="item-title">${escapeHtml(i.title)}</span><span class="badge ${escapeHtml(i.severity)}">${escapeHtml(labels[i.severity] || i.severity)}</span></div><p class="muted">${escapeHtml(i.asset_name || 'غير مرتبط بأصل')} · ${escapeHtml(new Date(i.created_at).toLocaleString('ar-MA'))}</p>${i.description ? `<p>${escapeHtml(i.description)}</p>` : ''}<label>حالة الحادث<select class="inline-select incident-status" data-id="${i.id}">${incidentStatuses.map(s => `<option value="${s}" ${s === i.status ? 'selected' : ''}>${escapeHtml(labels[s])}</option>`).join('')}</select></label></article>`).join('') : '<p class="empty">لا توجد حوادث مسجلة.</p>');
+    }
+    function renderRules(rules) {
+        setList('rules-list', rules.length ? rules.map(r => {
+            const currentValue = r.last_value === null || r.last_value === undefined ? '—' : Number(r.last_value).toLocaleString('ar-MA');
+            const activeLabel = r.active_match ? `مطابقة نشطة${r.active_incident_id ? ` · الحادث #${r.active_incident_id}` : ''}` : 'لا توجد مطابقة نشطة';
+            return `<article class="item"><div class="item-head"><span class="item-title">${escapeHtml(r.name)}</span><span class="badge ${r.enabled ? (r.active_match ? escapeHtml(r.severity) : 'low') : ''}">${r.enabled ? (r.active_match ? 'مفعّلة — مطابقة' : 'مفعّلة') : 'معطّلة'}</span></div><p class="muted">${escapeHtml(metricLabels[r.metric] || r.metric)} ${escapeHtml(operatorLabels[r.operator] || r.operator)} ${escapeHtml(r.threshold)} · ${escapeHtml(labels[r.severity] || r.severity)} · ${escapeHtml(r.asset_name || 'بدون أصل')}</p><p>${escapeHtml(activeLabel)} · قيمة بدء المطابقة: ${escapeHtml(currentValue)}</p><div class="actions"><button class="rule-toggle" type="button" data-id="${Number(r.id)}" data-enabled="${r.enabled ? 'true' : 'false'}">${r.enabled ? 'تعطيل القاعدة' : 'تفعيل القاعدة'}</button></div></article>`;
+        }).join('') : '<p class="empty">لا توجد قواعد كشف محلية بعد.</p>');
+    }
+    async function loadLocalRecords() {
+        if (!token()) {
+            setList('assets-list','<p class="empty">أدخل رمز API لعرض الأصول.</p>');
+            setList('incidents-list','<p class="empty">أدخل رمز API لعرض الحوادث.</p>');
+            setList('rules-list','<p class="empty">أدخل رمز API لعرض قواعد الكشف.</p>');
+            document.getElementById('stat-assets').textContent = '—';
+            return;
         }
-        function githubPriorityLabel(priority) {
-            return ({ critical: 'حرج', high: 'عالٍ', medium: 'متوسط', low: 'منخفض' })[priority] || 'مراجعة';
+        try {
+            const [assetData, incidentData, ruleData] = await Promise.all([api('/api/assets'), api('/api/incidents'), api('/api/detection-rules')]);
+            renderAssets(assetData.assets || []); renderIncidents(incidentData.incidents || []); renderRules(ruleData.rules || []);
+            message('access-message','تم الاتصال — الأصول والحوادث وقواعد الكشف محفوظة محليًا.','success');
+        } catch (error) {
+            message('access-message',`تعذر تحميل البيانات الخاصة: ${error.message}`,'error');
         }
-        function githubPriorityClass(priority) {
-            return ({ critical: 'border-red-500/50 text-red-200', high: 'border-orange-500/50 text-orange-200', medium: 'border-yellow-500/50 text-yellow-100', low: 'border-gray-600 text-gray-300' })[priority] || 'border-gray-600 text-gray-300';
+    }
+    async function loadSummary() {
+        try {
+            const [status, stats, threats] = await Promise.all([api('/api/status'), api('/api/stats'), api('/api/threats')]);
+            document.getElementById('system-status').textContent = 'الخادم المحلي يعمل';
+            document.getElementById('stat-packets').textContent = (stats.packets_scanned || 0).toLocaleString('ar');
+            document.getElementById('stat-threats').textContent = (status.threats_total || 0).toLocaleString('ar');
+            const items = threats.threats || [];
+            setList('threat-list', items.length ? items.map(t => `<div class="threat"><strong>${escapeHtml(t.type)}</strong><span class="badge ${escapeHtml(t.severity || 'medium')}">${escapeHtml(labels[t.severity] || t.severity || '—')}</span><span class="muted">${escapeHtml(new Date(t.timestamp).toLocaleString('ar-MA'))}</span></div>`).join('') : '<p class="empty">لا توجد تهديدات مسجلة حتى الآن.</p>');
+        } catch (_) {
+            document.getElementById('system-status').textContent = 'تعذر الاتصال بالخادم';
+            document.getElementById('system-status').style.color = 'var(--red)';
         }
-        function githubDate(value) {
-            if (!value) return 'غير متوفر';
-            const date = new Date(value);
-            return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString('ar-MA');
-        }
-        function githubLink(url, label) {
-            try {
-                const parsed = new URL(url, location.href);
-                if (parsed.protocol !== 'https:') return escapeHtml(label);
-                return `<a class="text-cyan-300 hover:text-cyan-100 underline" href="${escapeHtml(parsed.href)}" target="_blank" rel="noopener noreferrer">${escapeHtml(label)}</a>`;
-            } catch (e) { return escapeHtml(label); }
-        }
-        function renderGitHubOverview(data) {
-            if (data.error === 'integration_disabled') {
-                document.getElementById('github-repo-meta').textContent = 'تعمل المراقبة والسجلات المحلية دون اتصال بـ GitHub.';
-                document.getElementById('github-overall-status').innerHTML = githubStatusBadge('integration_disabled');
-                document.getElementById('github-workflow-count').textContent = '—';
-                document.getElementById('github-deployment-count').textContent = '—';
-                document.getElementById('github-vulnerability-count').textContent = '—';
-                document.getElementById('github-priorities').innerHTML = '<p class="text-sm text-gray-300">تكامل GitHub متوقف. لتفعيله اختياريًا اضبط <code>EAGLE_GITHUB_ENABLED=1</code> على الخادم ثم أعد تشغيله.</p>';
-                document.getElementById('github-workflows').innerHTML = '<p class="text-gray-400">غير مستخدم في الوضع المحلي</p>';
-                document.getElementById('github-deployments').innerHTML = '<p class="text-gray-400">غير مستخدم في الوضع المحلي</p>';
-                document.getElementById('github-vulnerabilities').innerHTML = '<p class="text-gray-400">بيانات التهديدات المحلية متاحة في سجل التهديدات أدناه.</p>';
-                return;
-            }
-            const repo = data.repository || {};
-            const sections = data.sections || {};
-            const workflows = sections.workflows || {};
-            const deployments = sections.deployments || {};
-            const security = sections.security || {};
-            const summary = data.summary || {};
-            const priorities = Array.isArray(data.priorities) ? data.priorities : [];
-            const runs = Array.isArray(workflows.runs) ? workflows.runs : [];
-            const deploymentItems = Array.isArray(deployments.items) ? deployments.items : [];
-            const alerts = Array.isArray(security.alerts) ? security.alerts : [];
-
-            document.getElementById('github-repo-meta').innerHTML = repo.url
-                ? `${githubLink(repo.url, repo.full_name || 'مستودع GitHub')} · الفرع الافتراضي: ${escapeHtml(repo.default_branch || '—')} · آخر دفع: ${escapeHtml(githubDate(repo.pushed_at))}`
-                : 'تعذر قراءة بيانات المستودع';
-            document.getElementById('github-overall-status').innerHTML = data.connected
-                ? `${githubStatusBadge(workflows.status)} <span class="text-gray-400">فُحص: ${escapeHtml(githubDate(data.checked_at))}</span>`
-                : githubStatusBadge(data.error || 'unavailable');
-            document.getElementById('github-workflow-count').textContent = summary.failed_workflows == null ? '—' : summary.failed_workflows;
-            document.getElementById('github-deployment-count').textContent = summary.failed_deployments == null ? '—' : summary.failed_deployments;
-            document.getElementById('github-vulnerability-count').textContent = summary.open_vulnerabilities == null ? '—' : summary.open_vulnerabilities;
-
-            document.getElementById('github-priorities').innerHTML = priorities.length ? priorities.map(item => `
-                <article class="rounded-xl border ${githubPriorityClass(item.priority)} bg-gray-950/30 p-3">
-                    <div class="flex items-start justify-between gap-2">
-                        <h4 class="font-bold">${escapeHtml(item.title)}</h4>
-                        <span class="shrink-0 text-xs font-bold">${escapeHtml(githubPriorityLabel(item.priority))}</span>
-                    </div>
-                    <p class="text-sm text-gray-300 mt-2">${escapeHtml(item.reason)}</p>
-                    <p class="text-sm text-gray-200 mt-2"><strong>الخطوة التالية:</strong> ${escapeHtml(item.action)}</p>
-                    <div class="mt-2">${githubLink(item.url, 'فتح التفاصيل')}</div>
-                </article>`).join('') : '<p class="text-sm text-gray-400">لا توجد توصيات حالياً.</p>';
-
-            document.getElementById('github-workflows').innerHTML = runs.length ? runs.map(run => {
-                const status = run.conclusion || run.status || 'unknown';
-                return `<article class="border-b border-gray-800 pb-2">
-                    <div class="flex items-start justify-between gap-2"><span class="font-bold">${escapeHtml(run.name)} · ${escapeHtml(run.title)}</span>${githubStatusBadge(status)}</div>
-                    <p class="text-gray-400 mt-1">الفرع: ${escapeHtml(run.branch || '—')} · ${escapeHtml(githubDate(run.updated_at))}</p>
-                    <div class="mt-1">${githubLink(run.url, 'عرض سجل التشغيل')}</div>
-                </article>`;
-            }).join('') : `<p class="text-gray-400">${workflows.error ? 'تعذر تحميل التشغيلات: ' + escapeHtml(githubStatusLabels[workflows.error] || 'خطأ GitHub') : 'لا توجد تشغيلات حديثة لعرضها.'}</p>`;
-
-            document.getElementById('github-deployments').innerHTML = deploymentItems.length ? deploymentItems.map(item => `
-                <article class="border-b border-gray-800 pb-2">
-                    <div class="flex items-start justify-between gap-2"><span class="font-bold">${escapeHtml(item.environment || 'بيئة النشر')}</span>${githubStatusBadge(item.state)}</div>
-                    <p class="text-gray-400 mt-1">${escapeHtml(item.description || item.ref || '—')} · ${escapeHtml(githubDate(item.created_at))}</p>
-                    <div class="mt-1">${githubLink(item.url, 'فتح تفاصيل النشر')}</div>
-                </article>`).join('') : `<p class="text-gray-400">${deployments.error ? 'تعذر تحميل حالات النشر: ' + escapeHtml(githubStatusLabels[deployments.error] || 'خطأ GitHub') : 'لا توجد عمليات نشر مسجلة في GitHub.'}</p>`;
-
-            if (alerts.length) {
-                document.getElementById('github-vulnerabilities').innerHTML = alerts.map(alert => `
-                    <article class="border-b border-gray-800 pb-2">
-                        <div class="flex items-start justify-between gap-2"><span class="font-bold">${escapeHtml(alert.title)}</span>${githubStatusBadge(alert.severity)}</div>
-                        <p class="text-gray-400 mt-1">${escapeHtml(alert.source)}${alert.package ? ' · ' + escapeHtml(alert.package) : ''}</p>
-                        <div class="mt-1">${githubLink(alert.url, 'فتح التنبيه')}</div>
-                    </article>`).join('');
-            } else if (security.status === 'clear') {
-                document.getElementById('github-vulnerabilities').innerHTML = '<p class="text-green-300">لم تُرجع GitHub تنبيهات مفتوحة في Dependabot أو Code scanning.</p>';
-            } else {
-                const depStatus = githubStatusLabels[security.dependabot] || 'غير متاح';
-                const codeStatus = githubStatusLabels[security.code_scanning] || 'غير متاح';
-                document.getElementById('github-vulnerabilities').innerHTML = `<p class="text-yellow-200">التغطية غير مكتملة؛ لا يمكن تأكيد خلو المستودع من الثغرات.</p><p class="text-gray-400 mt-1">Dependabot: ${escapeHtml(depStatus)} · Code scanning: ${escapeHtml(codeStatus)}</p>`;
-            }
-        }
-
-        function clearGitHubOverview(message) {
-            document.getElementById('github-overall-status').textContent = message;
-            document.getElementById('github-repo-meta').textContent = 'صحة المستودع والتشغيلات والنشر والتنبيهات الأمنية';
-            document.getElementById('github-workflow-count').textContent = '—';
-            document.getElementById('github-deployment-count').textContent = '—';
-            document.getElementById('github-vulnerability-count').textContent = '—';
-            document.getElementById('github-priorities').innerHTML = '<p class="text-sm text-gray-400">أدخل رمز EAGLE-X في قسم التحكم لعرض البيانات.</p>';
-            document.getElementById('github-workflows').innerHTML = '<p class="text-gray-400">بانتظار البيانات</p>';
-            document.getElementById('github-deployments').innerHTML = '<p class="text-gray-400">بانتظار البيانات</p>';
-            document.getElementById('github-vulnerabilities').innerHTML = '<p class="text-gray-400">بانتظار البيانات</p>';
-        }
-
-        let githubIntegrationEnabled = true;
-        async function fetchGitHubOverview() {
-            if (!githubIntegrationEnabled) return;
-            const token = document.getElementById('api-token').value.trim();
-            const status = document.getElementById('github-overall-status');
-            if (!token) {
-                clearGitHubOverview('أدخل رمز EAGLE-X في قسم التحكم لعرض البيانات');
-                return;
-            }
-            const button = document.getElementById('github-refresh');
-            button.disabled = true;
-            button.textContent = 'جارٍ التحديث…';
-            try {
-                const response = await fetch(apiUrl('/api/github/overview'), { headers: authHeaders(), cache: 'no-store' });
-                if (response.status === 401 || response.status === 403) {
-                    clearGitHubOverview('رمز EAGLE-X مفقود أو غير صالح');
-                    return;
-                }
-                if (!response.ok) throw new Error('github_api_unavailable');
-                const data = await response.json();
-                if (data.error === 'integration_disabled') {
-                    githubIntegrationEnabled = false;
-                    button.disabled = true;
-                    button.title = 'فعّل التكامل من إعدادات الخادم إذا رغبت';
-                }
-                renderGitHubOverview(data);
-            } catch (error) {
-                status.textContent = 'تعذر تحديث بيانات GitHub';
-                document.getElementById('github-priorities').innerHTML = '<p class="text-red-300">تعذر الوصول إلى واجهة المركز. تحقق من اتصال الخادم ثم حاول مجدداً.</p>';
-            } finally {
-                button.disabled = !githubIntegrationEnabled;
-                button.textContent = 'تحديث';
-            }
-        }
-
-        let liveSocket;
-        function connectLiveUpdates() {
-            const token = document.getElementById('api-token').value.trim();
-            if (!token) return;
-            liveSocket = new WebSocket(apiWebSocketUrl('/ws'));
-            liveSocket.onopen = () => liveSocket.send(JSON.stringify({ token }));
-            liveSocket.onmessage = (event) => {
-                const message = JSON.parse(event.data);
-                if (message.type === 'sample') {
-                    document.getElementById('stat-packets').innerText =
-                        (message.packets_scanned || 0).toLocaleString();
-                    if (message.host) {
-                        document.getElementById('stat-host').innerText =
-                            Math.round(message.host.cpu_percent || 0) + '% / ' +
-                            Math.round(message.host.mem_percent || 0) + '%';
-                    }
-                    document.getElementById('status-text').innerText = 'اتصال حي';
-                }
-                if (message.type === 'threat') fetchThreats();
-            };
-            liveSocket.onclose = () => {
-                document.getElementById('status-text').innerText = 'إعادة الاتصال...';
-                setTimeout(connectLiveUpdates, 3000);
-            };
-        }
-
-        async function fetchStats() {
-            try {
-                const res = await fetch(apiUrl('/api/stats'), { headers: authHeaders() });
-                const data = await res.json();
-                document.getElementById('stat-packets').innerText = (data.packets_scanned || 0).toLocaleString();
-                document.getElementById('stat-threats').innerText = data.threats_detected || 0;
-                if (data.host) {
-                    document.getElementById('stat-host').innerText =
-                        Math.round(data.host.cpu_percent) + '% / ' + Math.round(data.host.mem_percent) + '%';
-                }
-                document.getElementById('status-text').innerText = 'النظام يعمل';
-            } catch (e) {
-                document.getElementById('status-text').innerText = 'تعذر الاتصال';
-            }
-        }
-
-        async function fetchThreats() {
-            try {
-                const res = await fetch(apiUrl('/api/threats'), { headers: authHeaders() });
-                const data = await res.json();
-                const tbody = document.getElementById('threat-table-body');
-                if (data.threats && data.threats.length) {
-                    tbody.innerHTML = data.threats.map(t => `
-                        <tr class="hover:bg-gray-800/50">
-                            <td class="py-3">${new Date(t.timestamp).toLocaleTimeString()}</td>
-                            <td class="py-3 text-red-400">${escapeHtml(t.type)}</td>
-                            <td class="py-3">${((t.confidence || 0) * 100).toFixed(1)}%</td>
-                            <td class="py-3">${escapeHtml(t.severity || '-')}</td>
-                        </tr>`).join('');
-                }
-            } catch (e) {}
-        }
-
-        async function triggerScan() {
-            // High anomaly-like vector for demo
-            const features = [90, 92, 2500000, 3000000, 420, 280, 75, 0.9];
-            const res = await fetch(apiUrl('/api/detect'), {
-                method: 'POST',
-                headers: authHeaders(),
-                body: JSON.stringify({ features, indicator: '10.0.0.66' })
-            });
-            const data = await res.json();
-            alert(data.analysis && data.analysis.threat_detected ? 'تم اكتشاف تهديد' : 'آمن / تحقق من التوكن');
-            fetchStats(); fetchThreats();
-        }
-
-        async function triggerHeal() {
-            const res = await fetch(apiUrl('/api/heal'), {
-                method: 'POST',
-                headers: authHeaders(),
-                body: JSON.stringify({ threat_type: 'MANUAL_TEST', indicator: '10.0.0.66' })
-            });
-            const data = await res.json();
-            alert('نتيجة الشفاء: ' + JSON.stringify(data.actions || data));
-        }
-
-        document.getElementById('api-token').addEventListener('change', () => {
-            connectLiveUpdates();
-            fetchGitHubOverview();
-        });
-        document.getElementById('github-refresh').addEventListener('click', fetchGitHubOverview);
-        setInterval(fetchGitHubOverview, 300000);
-        setInterval(() => { fetchStats(); fetchThreats(); }, 5000);
-        fetchStats(); fetchThreats();
-    </script>
+    }
+    async function refresh() { await Promise.all([loadSummary(), loadLocalRecords()]); }
+    document.getElementById('connect-button').addEventListener('click', refresh);
+    document.getElementById('api-token').addEventListener('keydown', e => { if (e.key === 'Enter') refresh(); });
+    document.getElementById('asset-form').addEventListener('submit', async e => {
+        e.preventDefault(); const form = e.currentTarget; const data = Object.fromEntries(new FormData(form));
+        try {
+            await api('/api/assets',{method:'POST',body:JSON.stringify(data)}); form.reset();
+            message('asset-message','تمت إضافة الأصل إلى قاعدة البيانات المحلية.','success'); await loadLocalRecords();
+        } catch (error) { message('asset-message',`تعذرت الإضافة: ${error.message}`,'error'); }
+    });
+    document.getElementById('incident-form').addEventListener('submit', async e => {
+        e.preventDefault(); const form = e.currentTarget; const data = Object.fromEntries(new FormData(form));
+        if (!data.asset_id) delete data.asset_id; else data.asset_id = Number(data.asset_id);
+        try {
+            await api('/api/incidents',{method:'POST',body:JSON.stringify(data)}); form.reset();
+            message('incident-message','تم تسجيل الحادث محليًا.','success'); await loadLocalRecords();
+        } catch (error) { message('incident-message',`تعذر التسجيل: ${error.message}`,'error'); }
+    });
+    document.getElementById('rule-form').addEventListener('submit', async e => {
+        e.preventDefault(); const form = e.currentTarget; const data = Object.fromEntries(new FormData(form));
+        data.threshold = Number(data.threshold);
+        if (!data.asset_id) delete data.asset_id; else data.asset_id = Number(data.asset_id);
+        try {
+            await api('/api/detection-rules',{method:'POST',body:JSON.stringify(data)}); form.reset();
+            message('rule-message','تمت إضافة قاعدة الكشف إلى قاعدة البيانات المحلية.','success'); await loadLocalRecords();
+        } catch (error) { message('rule-message',`تعذرت إضافة القاعدة: ${error.message}`,'error'); }
+    });
+    document.getElementById('evaluate-rules').addEventListener('click', async e => {
+        const button = e.currentTarget; button.disabled = true;
+        try {
+            const result = await api('/api/detection-rules/evaluate',{method:'POST',body:'{}'});
+            message('rule-message',`اكتمل التقييم: ${result.evaluated} قاعدة؛ ${result.matches.length} مطابقة؛ ${result.new_incidents.length} حادث جديد.`,'success');
+            await loadLocalRecords();
+        } catch (error) { message('rule-message',`تعذر تقييم الإشارات: ${error.message}`,'error'); }
+        finally { button.disabled = false; }
+    });
+    document.getElementById('incidents-list').addEventListener('change', async e => {
+        if (!e.target.matches('.incident-status')) return;
+        try { await api(`/api/incidents/${e.target.dataset.id}`,{method:'PATCH',body:JSON.stringify({status:e.target.value})}); message('incident-message','تم تحديث حالة الحادث وتسجيل التغيير.','success'); }
+        catch (error) { message('incident-message',`تعذر تحديث الحالة: ${error.message}`,'error'); await loadLocalRecords(); }
+    });
+    document.getElementById('rules-list').addEventListener('click', async e => {
+        const button = e.target.closest('.rule-toggle'); if (!button) return;
+        button.disabled = true;
+        try {
+            const enabled = button.dataset.enabled !== 'true';
+            await api(`/api/detection-rules/${button.dataset.id}`,{method:'PATCH',body:JSON.stringify({enabled})});
+            message('rule-message',enabled ? 'تم تفعيل القاعدة.' : 'تم تعطيل القاعدة.','success'); await loadLocalRecords();
+        } catch (error) { message('rule-message',`تعذر تحديث القاعدة: ${error.message}`,'error'); }
+        finally { button.disabled = false; }
+    });
+    document.getElementById('github-load').addEventListener('click', async e => {
+        const button = e.currentTarget; button.disabled = true;
+        try {
+            const data = await api('/api/github/overview');
+            document.getElementById('github-output').textContent = JSON.stringify(data, null, 2);
+            document.getElementById('github-output').hidden = false;
+            message('github-message', data.error === 'integration_disabled' ? 'التكامل معطّل على الخادم؛ يظل النظام المحلي مستقلًا.' : 'تم تحميل الملخص بناءً على طلبك.','success');
+        } catch (error) { message('github-message',`تعذر التحميل: ${error.message}`,'error'); }
+        finally { button.disabled = false; }
+    });
+    refresh();
+    setInterval(refresh, 20000);
+</script>
 </body>
 </html>

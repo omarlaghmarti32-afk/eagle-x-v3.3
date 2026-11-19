@@ -41,12 +41,19 @@ def test_static_build_rejects_non_https_api_origin(monkeypatch, tmp_path):
         _build.main()
 
 
-def test_dashboard_uses_api_origin_and_escapes_external_html():
+def test_dashboard_is_self_contained_and_uses_local_api():
     dashboard = (SCRIPT_PATH.parents[1] / "dashboard.html").read_text(encoding="utf-8")
 
     assert "const apiUrl = (path) => `${API_ORIGIN}${path}`" in dashboard
-    assert "apiWebSocketUrl('/ws')" in dashboard
-    assert "fetch(apiUrl('/api/github/overview')" in dashboard
+    assert "api('/api/assets')" in dashboard
+    assert "api('/api/incidents')" in dashboard
+    assert "api('/api/detection-rules')" in dashboard
+    assert "api('/api/detection-rules/evaluate'" in dashboard
+    assert "قواعد الكشف المحلية" in dashboard
+    assert "api('/api/github/overview')" in dashboard
+    assert "لا يحدث أي اتصال بهذا التكامل تلقائيًا" in dashboard
     assert "escapeHtml(t.type)" in dashboard
-    assert "escapeHtml(t.severity || '-')" in dashboard
-    assert "${t.type}" not in dashboard
+    assert "https://cdn.tailwindcss.com" not in dashboard
+    assert "fonts.googleapis.com" not in dashboard
+    assert "api.github.com" not in dashboard
+    assert "setInterval(loadGitHubOverview" not in dashboard
